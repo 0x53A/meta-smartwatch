@@ -1,0 +1,3741 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Sat, 8 Mar 2026 13:00:00 +0100
+Subject: [PATCH] Add vendor health sensors (RR, temp, PPG, calories, RHR, off-body)
+
+Wire remaining LifeQ and PAH8131 vendor sensors through sensorfw:
+- Respiration rate (65574) - breaths per minute
+- On-wrist temperature (65575) - skin temperature
+- Raw PPG waveform (65572) - photodetector readings
+- Calories (65573) - calorie estimation
+- Daily resting HR (65581) - daily RHR
+- Basal resting HR (65582) - basal RHR
+- Off-body detection (34) - on/off wrist
+
+All adaptors include debug logging to discover vendor event data layout.
+Field mappings are preliminary (data[0]=value, data[1]=status).
+
+Upstream-Status: Inappropriate
+
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+
+diff --git a/adaptors/adaptors.pro b/adaptors/adaptors.pro
+index 311e76e..c1b2ffd 100644
+--- a/adaptors/adaptors.pro
++++ b/adaptors/adaptors.pro
+@@ -14,7 +14,14 @@ HYBRIS_SUBDIRS = hybrisaccelerometer \
+                  hybrisstepcounteradaptor \
+                  hybrishrmadaptor \
+                  hybriswristgestureadaptor \
+-                 hybrisspo2adaptor
++                 hybrisspo2adaptor \
++                 hybrisrradaptor \
++                 hybriswristtempadaptor \
++                 hybrisoffbodyadaptor \
++                 hybrisrawppgadaptor \
++                 hybriscaloriesadaptor \
++                 hybrisdailyrhradaptor \
++                 hybrisbasalrhradaptor
+ 
+ # split like this as Sailfish only installs hybris plugins
+ contains(CONFIG,hybris) {
+diff --git a/config/20-sensors-default.conf b/config/20-sensors-default.conf
+index 694d5cb..329fc42 100644
+--- a/config/20-sensors-default.conf
++++ b/config/20-sensors-default.conf
+@@ -45,6 +45,13 @@ stepcountersensor=True
+ hrmsensor=True
+ wristgesturesensor=True
+ spo2sensor=True
++rrsensor=True
++wristtempsensor=True
++offbodysensor=True
++rawppgsensor=True
++caloriessensor=True
++dailyrhrsensor=True
++basalrhrsensor=True
+ 
+ ; To avoid revisiting config files for all old ports in the future, the
+ ; defaults for added sensors should be set "False" by default here, and
+diff --git a/config/sensord-hybris.conf b/config/sensord-hybris.conf
+index 271d3ba..8690338 100644
+--- a/config/sensord-hybris.conf
++++ b/config/sensord-hybris.conf
+@@ -10,6 +10,13 @@ pressureadaptor = hybrispressureadaptor
+ hrmadaptor = hybrishrmadaptor
+ wristgestureadaptor = hybriswristgestureadaptor
+ spo2adaptor = hybrisspo2adaptor
++rradaptor = hybrisrradaptor
++wristtempadaptor = hybriswristtempadaptor
++offbodyadaptor = hybrisoffbodyadaptor
++rawppgadaptor = hybrisrawppgadaptor
++caloriesadaptor = hybriscaloriesadaptor
++dailyrhradaptor = hybrisdailyrhradaptor
++basalrhradaptor = hybrisbasalrhradaptor
+ 
+ [magnetometer]
+ scale_coefficient = 1
+diff --git a/datatypes/datatypes.pro b/datatypes/datatypes.pro
+index 21ed4c9..6c0fe38 100644
+--- a/datatypes/datatypes.pro
++++ b/datatypes/datatypes.pro
+@@ -29,7 +29,21 @@ HEADERS += xyz.h \
+     heartratedata.h \
+     heartrate.h \
+     spo2data.h \
+-    spo2.h
++    spo2.h \
++    rrdata.h \
++    rr.h \
++    wristtempdata.h \
++    wristtemp.h \
++    offbodydata.h \
++    offbody.h \
++    rawppgdata.h \
++    rawppg.h \
++    caloriesdata.h \
++    calories.h \
++    dailyrhrdata.h \
++    dailyrhr.h \
++    basalrhrdata.h \
++    basalrhr.h
+ 
+ SOURCES += xyz.cpp \
+     orientation.cpp \
+@@ -39,7 +53,14 @@ SOURCES += xyz.cpp \
+     tap.cpp \
+     lid.cpp \
+     heartrate.cpp \
+-    spo2.cpp
++    spo2.cpp \
++    rr.cpp \
++    wristtemp.cpp \
++    offbody.cpp \
++    rawppg.cpp \
++    calories.cpp \
++    dailyrhr.cpp \
++    basalrhr.cpp
+ 
+ include(../common-install.pri)
+ publicheaders.path  = $${publicheaders.path}/datatypes
+diff --git a/datatypes/utils.cpp b/datatypes/utils.cpp
+index 31a70a9..e1cd05a 100644
+--- a/datatypes/utils.cpp
++++ b/datatypes/utils.cpp
+@@ -35,6 +35,13 @@
+ #include "timedunsigned.h"
+ #include "compass.h"
+ #include "spo2.h"
++#include "rr.h"
++#include "wristtemp.h"
++#include "offbody.h"
++#include "rawppg.h"
++#include "calories.h"
++#include "dailyrhr.h"
++#include "basalrhr.h"
+ #include "orientation.h"
+ #include "datarange.h"
+ #include "tap.h"
+@@ -55,5 +62,12 @@ void __attribute__ ((constructor)) datatypes_init(void)
+     qDBusRegisterMetaType<IntegerRangeList>();
+     qDBusRegisterMetaType<Spo2>();
++    qDBusRegisterMetaType<RespirationRate>();
++    qDBusRegisterMetaType<WristTemp>();
++    qDBusRegisterMetaType<OffBody>();
++    qDBusRegisterMetaType<RawPpg>();
++    qDBusRegisterMetaType<Calories>();
++    qDBusRegisterMetaType<DailyRhr>();
++    qDBusRegisterMetaType<BasalRhr>();
+     qRegisterMetaType<TimedUnsigned>();
+     qRegisterMetaType<PoseData>();
+     qRegisterMetaType<Proximity>();
+diff --git a/sensors/sensors.pro b/sensors/sensors.pro
+index e2c364c..8abf6ff 100644
+--- a/sensors/sensors.pro
++++ b/sensors/sensors.pro
+@@ -19,6 +19,13 @@ SUBDIRS  = accelerometersensor \
+            stepcountersensor \
+            hrmsensor \
+            wristgesturesensor \
+-           spo2sensor
++           spo2sensor \
++           rrsensor \
++           wristtempsensor \
++           offbodysensor \
++           rawppgsensor \
++           caloriessensor \
++           dailyrhrsensor \
++           basalrhrsensor
+ 
+ contextprovider:SUBDIRS += contextplugin
+diff --git a/datatypes/rrdata.h b/datatypes/rrdata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/rrdata.h
+@@ -0,0 +1,16 @@
++#ifndef RRDATA_H
++#define RRDATA_H
++
++#include "datatypes/genericdata.h"
++
++class RespirationRateData : public TimedData {
++public:
++    RespirationRateData() : TimedData(0), value_(0), status_(0) {}
++    RespirationRateData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // breaths per minute
++    int status_;    // accuracy/confidence
++};
++
++#endif // RRDATA_H
+diff --git a/datatypes/rr.h b/datatypes/rr.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/rr.h
+@@ -0,0 +1,54 @@
++#ifndef RR_H
++#define RR_H
++
++#include <QDBusArgument>
++#include <datatypes/rrdata.h>
++
++class RespirationRate : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    RespirationRate() {}
++    RespirationRate(const RespirationRateData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    RespirationRate(const RespirationRate& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const RespirationRateData& rrData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    RespirationRate& operator=(const RespirationRate& origin)
++    {
++        data_ = origin.rrData();
++        return *this;
++    }
++
++private:
++    RespirationRateData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, RespirationRate& obj);
++};
++
++Q_DECLARE_METATYPE(RespirationRate)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const RespirationRate &obj)
++{
++    argument.beginStructure();
++    argument << obj.rrData().value_ << obj.rrData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, RespirationRate &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // RR_H
+diff --git a/datatypes/rr.cpp b/datatypes/rr.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/rr.cpp
+@@ -0,0 +1,2 @@
++#include "rr.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybrisrradaptor/hybrisrradaptor.cpp b/adaptors/hybrisrradaptor/hybrisrradaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrradaptor/hybrisrradaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisrradaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_RR 65574
++
++HybrisRespirationRateAdaptor::HybrisRespirationRateAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_RR)
++{
++    buffer = new DeviceAdaptorRingBuffer<RespirationRateData>(1);
++    setAdaptedSensor("rr", "Respiration rate", buffer);
++    setDescription("Hybris Respiration rate sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisRespirationRateAdaptor::~HybrisRespirationRateAdaptor() { delete buffer; }
++
++bool HybrisRespirationRateAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisRespirationRateAdaptor started";
++    return true;
++}
++
++void HybrisRespirationRateAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for Respiration rate sensor";
++}
++
++void HybrisRespirationRateAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisRespirationRateAdaptor stopped";
++}
++
++void HybrisRespirationRateAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "RR RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    RespirationRateData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybrisrradaptor/hybrisrradaptor.h b/adaptors/hybrisrradaptor/hybrisrradaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrradaptor/hybrisrradaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISRRADAPTOR_H
++#define HYBRISRRADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/rrdata.h"
++
++class HybrisRespirationRateAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisRespirationRateAdaptor(id);
++    }
++    HybrisRespirationRateAdaptor(const QString& id);
++    ~HybrisRespirationRateAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<RespirationRateData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybrisrradaptor/hybrisrradaptorplugin.cpp b/adaptors/hybrisrradaptor/hybrisrradaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrradaptor/hybrisrradaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybrisrradaptorplugin.h"
++#include "hybrisrradaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisRespirationRateAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybrisrradaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisRespirationRateAdaptor>("rradaptor");
++}
+diff --git a/adaptors/hybrisrradaptor/hybrisrradaptorplugin.h b/adaptors/hybrisrradaptor/hybrisrradaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrradaptor/hybrisrradaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISRRADAPTORPLUGIN_H
++#define HYBRISRRADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisRespirationRateAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybrisrradaptor/hybrisrradaptor.pro b/adaptors/hybrisrradaptor/hybrisrradaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrradaptor/hybrisrradaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybrisrradaptor
++HEADERS += hybrisrradaptor.h hybrisrradaptorplugin.h
++SOURCES += hybrisrradaptor.cpp hybrisrradaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/rrsensor/rrplugin.cpp b/sensors/rrsensor/rrplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrplugin.cpp
+@@ -0,0 +1,20 @@
++#include "rrplugin.h"
++#include "rrsensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void RespirationRatePlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering rrsensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<RespirationRateSensorChannel>("rrsensor");
++}
++
++void RespirationRatePlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("rrsensor");
++}
++
++QStringList RespirationRatePlugin::Dependencies() {
++    return QString("rradaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/rrsensor/rrplugin.h b/sensors/rrsensor/rrplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrplugin.h
+@@ -0,0 +1,13 @@
++#ifndef RRPLUGIN_H
++#define RRPLUGIN_H
++#include "plugin.h"
++class RespirationRatePlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/rrsensor/rrsensor_a.cpp b/sensors/rrsensor/rrsensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrsensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "rrsensor_a.h"
++#include "rrsensor.h"
++
++RespirationRateSensorChannelAdaptor::RespirationRateSensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++RespirationRate RespirationRateSensorChannelAdaptor::rr() const
++{
++    return qobject_cast<const RespirationRateSensorChannel*>(parent())->rr();
++}
+diff --git a/sensors/rrsensor/rrsensor_a.h b/sensors/rrsensor/rrsensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrsensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef RRSENSOR_A_H
++#define RRSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/rr.h"
++#include "abstractsensor_a.h"
++
++class RespirationRateSensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.RespirationRateSensor")
++    Q_PROPERTY(RespirationRate rr READ rr)
++public:
++    RespirationRateSensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    RespirationRate rr() const;
++Q_SIGNALS:
++    void rrChanged(const RespirationRate& value);
++};
++
++#endif
+diff --git a/sensors/rrsensor/rrsensor.cpp b/sensors/rrsensor/rrsensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrsensor.cpp
+@@ -0,0 +1,78 @@
++#include "rrsensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++RespirationRateSensorChannel::RespirationRateSensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<RespirationRateData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("rradaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<RespirationRateData>(1);
++    outputBuffer_ = new RingBuffer<RespirationRateData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "rr");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("rr", "source", "buffer", "sink");
++    connectToSource(adaptor_, "rr", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("Respiration rate sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++RespirationRateSensorChannel::~RespirationRateSensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "rr", reader_);
++        sm.releaseDeviceAdaptor("rradaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool RespirationRateSensorChannel::start()
++{
++    sensordLogD() << "Starting RespirationRateSensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool RespirationRateSensorChannel::stop()
++{
++    sensordLogD() << "Stopping RespirationRateSensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void RespirationRateSensorChannel::emitData(const RespirationRateData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/rrsensor/rrsensor.h b/sensors/rrsensor/rrsensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrsensor.h
+@@ -0,0 +1,53 @@
++#ifndef RRSENSOR_CHANNEL_H
++#define RRSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "rrsensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/rrdata.h"
++#include "datatypes/rr.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class RespirationRateSensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<RespirationRateData>
++{
++    Q_OBJECT
++    Q_PROPERTY(RespirationRate rr READ rr)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        RespirationRateSensorChannel* sc = new RespirationRateSensorChannel(id);
++        new RespirationRateSensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    RespirationRate rr() const { return RespirationRate(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void rrChanged(const RespirationRate& value);
++
++protected:
++    RespirationRateSensorChannel(const QString& id);
++    virtual ~RespirationRateSensorChannel();
++
++private:
++    RespirationRateData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<RespirationRateData>* reader_;
++    RingBuffer<RespirationRateData>* outputBuffer_;
++    void emitData(const RespirationRateData& value);
++};
++
++#endif
+diff --git a/sensors/rrsensor/rrsensor.pro b/sensors/rrsensor/rrsensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rrsensor/rrsensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = rrsensor
++HEADERS += rrsensor.h rrsensor_a.h rrplugin.h
++SOURCES += rrsensor.cpp rrsensor_a.cpp rrplugin.cpp
++include( ../sensor-config.pri )
+diff --git a/datatypes/wristtempdata.h b/datatypes/wristtempdata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/wristtempdata.h
+@@ -0,0 +1,16 @@
++#ifndef WRISTTEMPDATA_H
++#define WRISTTEMPDATA_H
++
++#include "datatypes/genericdata.h"
++
++class WristTempData : public TimedData {
++public:
++    WristTempData() : TimedData(0), value_(0), status_(0) {}
++    WristTempData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // degrees Celsius
++    int status_;    // accuracy/confidence
++};
++
++#endif // WRISTTEMPDATA_H
+diff --git a/datatypes/wristtemp.h b/datatypes/wristtemp.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/wristtemp.h
+@@ -0,0 +1,54 @@
++#ifndef WRISTTEMP_H
++#define WRISTTEMP_H
++
++#include <QDBusArgument>
++#include <datatypes/wristtempdata.h>
++
++class WristTemp : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    WristTemp() {}
++    WristTemp(const WristTempData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    WristTemp(const WristTemp& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const WristTempData& wristtempData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    WristTemp& operator=(const WristTemp& origin)
++    {
++        data_ = origin.wristtempData();
++        return *this;
++    }
++
++private:
++    WristTempData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, WristTemp& obj);
++};
++
++Q_DECLARE_METATYPE(WristTemp)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const WristTemp &obj)
++{
++    argument.beginStructure();
++    argument << obj.wristtempData().value_ << obj.wristtempData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, WristTemp &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // WRISTTEMP_H
+diff --git a/datatypes/wristtemp.cpp b/datatypes/wristtemp.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/wristtemp.cpp
+@@ -0,0 +1,2 @@
++#include "wristtemp.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.cpp b/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybriswristtempadaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_WRISTTEMP 65575
++
++HybrisWristTempAdaptor::HybrisWristTempAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_WRISTTEMP)
++{
++    buffer = new DeviceAdaptorRingBuffer<WristTempData>(1);
++    setAdaptedSensor("wristtemp", "On-wrist temperature", buffer);
++    setDescription("Hybris On-wrist temperature sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisWristTempAdaptor::~HybrisWristTempAdaptor() { delete buffer; }
++
++bool HybrisWristTempAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisWristTempAdaptor started";
++    return true;
++}
++
++void HybrisWristTempAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for On-wrist temperature sensor";
++}
++
++void HybrisWristTempAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisWristTempAdaptor stopped";
++}
++
++void HybrisWristTempAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "WRISTTEMP RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    WristTempData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.h b/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISWRISTTEMPADAPTOR_H
++#define HYBRISWRISTTEMPADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/wristtempdata.h"
++
++class HybrisWristTempAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisWristTempAdaptor(id);
++    }
++    HybrisWristTempAdaptor(const QString& id);
++    ~HybrisWristTempAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<WristTempData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybriswristtempadaptor/hybriswristtempadaptorplugin.cpp b/adaptors/hybriswristtempadaptor/hybriswristtempadaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriswristtempadaptor/hybriswristtempadaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybriswristtempadaptorplugin.h"
++#include "hybriswristtempadaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisWristTempAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybriswristtempadaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisWristTempAdaptor>("wristtempadaptor");
++}
+diff --git a/adaptors/hybriswristtempadaptor/hybriswristtempadaptorplugin.h b/adaptors/hybriswristtempadaptor/hybriswristtempadaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriswristtempadaptor/hybriswristtempadaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISWRISTTEMPADAPTORPLUGIN_H
++#define HYBRISWRISTTEMPADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisWristTempAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.pro b/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriswristtempadaptor/hybriswristtempadaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybriswristtempadaptor
++HEADERS += hybriswristtempadaptor.h hybriswristtempadaptorplugin.h
++SOURCES += hybriswristtempadaptor.cpp hybriswristtempadaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/wristtempsensor/wristtempplugin.cpp b/sensors/wristtempsensor/wristtempplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempplugin.cpp
+@@ -0,0 +1,20 @@
++#include "wristtempplugin.h"
++#include "wristtempsensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void WristTempPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering wristtempsensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<WristTempSensorChannel>("wristtempsensor");
++}
++
++void WristTempPlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("wristtempsensor");
++}
++
++QStringList WristTempPlugin::Dependencies() {
++    return QString("wristtempadaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/wristtempsensor/wristtempplugin.h b/sensors/wristtempsensor/wristtempplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempplugin.h
+@@ -0,0 +1,13 @@
++#ifndef WRISTTEMPPLUGIN_H
++#define WRISTTEMPPLUGIN_H
++#include "plugin.h"
++class WristTempPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/wristtempsensor/wristtempsensor_a.cpp b/sensors/wristtempsensor/wristtempsensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempsensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "wristtempsensor_a.h"
++#include "wristtempsensor.h"
++
++WristTempSensorChannelAdaptor::WristTempSensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++WristTemp WristTempSensorChannelAdaptor::wristtemp() const
++{
++    return qobject_cast<const WristTempSensorChannel*>(parent())->wristtemp();
++}
+diff --git a/sensors/wristtempsensor/wristtempsensor_a.h b/sensors/wristtempsensor/wristtempsensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempsensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef WRISTTEMPSENSOR_A_H
++#define WRISTTEMPSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/wristtemp.h"
++#include "abstractsensor_a.h"
++
++class WristTempSensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.WristTempSensor")
++    Q_PROPERTY(WristTemp wristtemp READ wristtemp)
++public:
++    WristTempSensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    WristTemp wristtemp() const;
++Q_SIGNALS:
++    void wristtempChanged(const WristTemp& value);
++};
++
++#endif
+diff --git a/sensors/wristtempsensor/wristtempsensor.cpp b/sensors/wristtempsensor/wristtempsensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempsensor.cpp
+@@ -0,0 +1,78 @@
++#include "wristtempsensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++WristTempSensorChannel::WristTempSensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<WristTempData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("wristtempadaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<WristTempData>(1);
++    outputBuffer_ = new RingBuffer<WristTempData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "wristtemp");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("wristtemp", "source", "buffer", "sink");
++    connectToSource(adaptor_, "wristtemp", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("On-wrist temperature sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++WristTempSensorChannel::~WristTempSensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "wristtemp", reader_);
++        sm.releaseDeviceAdaptor("wristtempadaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool WristTempSensorChannel::start()
++{
++    sensordLogD() << "Starting WristTempSensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool WristTempSensorChannel::stop()
++{
++    sensordLogD() << "Stopping WristTempSensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void WristTempSensorChannel::emitData(const WristTempData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/wristtempsensor/wristtempsensor.h b/sensors/wristtempsensor/wristtempsensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempsensor.h
+@@ -0,0 +1,53 @@
++#ifndef WRISTTEMPSENSOR_CHANNEL_H
++#define WRISTTEMPSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "wristtempsensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/wristtempdata.h"
++#include "datatypes/wristtemp.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class WristTempSensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<WristTempData>
++{
++    Q_OBJECT
++    Q_PROPERTY(WristTemp wristtemp READ wristtemp)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        WristTempSensorChannel* sc = new WristTempSensorChannel(id);
++        new WristTempSensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    WristTemp wristtemp() const { return WristTemp(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void wristtempChanged(const WristTemp& value);
++
++protected:
++    WristTempSensorChannel(const QString& id);
++    virtual ~WristTempSensorChannel();
++
++private:
++    WristTempData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<WristTempData>* reader_;
++    RingBuffer<WristTempData>* outputBuffer_;
++    void emitData(const WristTempData& value);
++};
++
++#endif
+diff --git a/sensors/wristtempsensor/wristtempsensor.pro b/sensors/wristtempsensor/wristtempsensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/wristtempsensor/wristtempsensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = wristtempsensor
++HEADERS += wristtempsensor.h wristtempsensor_a.h wristtempplugin.h
++SOURCES += wristtempsensor.cpp wristtempsensor_a.cpp wristtempplugin.cpp
++include( ../sensor-config.pri )
+diff --git a/datatypes/offbodydata.h b/datatypes/offbodydata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/offbodydata.h
+@@ -0,0 +1,16 @@
++#ifndef OFFBODYDATA_H
++#define OFFBODYDATA_H
++
++#include "datatypes/genericdata.h"
++
++class OffBodyData : public TimedData {
++public:
++    OffBodyData() : TimedData(0), value_(0), status_(0) {}
++    OffBodyData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // 1.0 if off-body
++    int status_;    // accuracy/confidence
++};
++
++#endif // OFFBODYDATA_H
+diff --git a/datatypes/offbody.h b/datatypes/offbody.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/offbody.h
+@@ -0,0 +1,54 @@
++#ifndef OFFBODY_H
++#define OFFBODY_H
++
++#include <QDBusArgument>
++#include <datatypes/offbodydata.h>
++
++class OffBody : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    OffBody() {}
++    OffBody(const OffBodyData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    OffBody(const OffBody& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const OffBodyData& offbodyData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    OffBody& operator=(const OffBody& origin)
++    {
++        data_ = origin.offbodyData();
++        return *this;
++    }
++
++private:
++    OffBodyData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, OffBody& obj);
++};
++
++Q_DECLARE_METATYPE(OffBody)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const OffBody &obj)
++{
++    argument.beginStructure();
++    argument << obj.offbodyData().value_ << obj.offbodyData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, OffBody &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // OFFBODY_H
+diff --git a/datatypes/offbody.cpp b/datatypes/offbody.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/offbody.cpp
+@@ -0,0 +1,2 @@
++#include "offbody.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.cpp b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisoffbodyadaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_OFFBODY 34
++
++HybrisOffBodyAdaptor::HybrisOffBodyAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_OFFBODY)
++{
++    buffer = new DeviceAdaptorRingBuffer<OffBodyData>(1);
++    setAdaptedSensor("offbody", "Off-body detection", buffer);
++    setDescription("Hybris Off-body detection sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisOffBodyAdaptor::~HybrisOffBodyAdaptor() { delete buffer; }
++
++bool HybrisOffBodyAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisOffBodyAdaptor started";
++    return true;
++}
++
++void HybrisOffBodyAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for Off-body detection sensor";
++}
++
++void HybrisOffBodyAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisOffBodyAdaptor stopped";
++}
++
++void HybrisOffBodyAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "OFFBODY RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    OffBodyData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.h b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISOFFBODYADAPTOR_H
++#define HYBRISOFFBODYADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/offbodydata.h"
++
++class HybrisOffBodyAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisOffBodyAdaptor(id);
++    }
++    HybrisOffBodyAdaptor(const QString& id);
++    ~HybrisOffBodyAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<OffBodyData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptorplugin.cpp b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybrisoffbodyadaptorplugin.h"
++#include "hybrisoffbodyadaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisOffBodyAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybrisoffbodyadaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisOffBodyAdaptor>("offbodyadaptor");
++}
+diff --git a/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptorplugin.h b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISOFFBODYADAPTORPLUGIN_H
++#define HYBRISOFFBODYADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisOffBodyAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.pro b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisoffbodyadaptor/hybrisoffbodyadaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybrisoffbodyadaptor
++HEADERS += hybrisoffbodyadaptor.h hybrisoffbodyadaptorplugin.h
++SOURCES += hybrisoffbodyadaptor.cpp hybrisoffbodyadaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/offbodysensor/offbodyplugin.cpp b/sensors/offbodysensor/offbodyplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodyplugin.cpp
+@@ -0,0 +1,20 @@
++#include "offbodyplugin.h"
++#include "offbodysensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void OffBodyPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering offbodysensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<OffBodySensorChannel>("offbodysensor");
++}
++
++void OffBodyPlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("offbodysensor");
++}
++
++QStringList OffBodyPlugin::Dependencies() {
++    return QString("offbodyadaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/offbodysensor/offbodyplugin.h b/sensors/offbodysensor/offbodyplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodyplugin.h
+@@ -0,0 +1,13 @@
++#ifndef OFFBODYPLUGIN_H
++#define OFFBODYPLUGIN_H
++#include "plugin.h"
++class OffBodyPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/offbodysensor/offbodysensor_a.cpp b/sensors/offbodysensor/offbodysensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodysensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "offbodysensor_a.h"
++#include "offbodysensor.h"
++
++OffBodySensorChannelAdaptor::OffBodySensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++OffBody OffBodySensorChannelAdaptor::offbody() const
++{
++    return qobject_cast<const OffBodySensorChannel*>(parent())->offbody();
++}
+diff --git a/sensors/offbodysensor/offbodysensor_a.h b/sensors/offbodysensor/offbodysensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodysensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef OFFBODYSENSOR_A_H
++#define OFFBODYSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/offbody.h"
++#include "abstractsensor_a.h"
++
++class OffBodySensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.OffBodySensor")
++    Q_PROPERTY(OffBody offbody READ offbody)
++public:
++    OffBodySensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    OffBody offbody() const;
++Q_SIGNALS:
++    void offbodyChanged(const OffBody& value);
++};
++
++#endif
+diff --git a/sensors/offbodysensor/offbodysensor.cpp b/sensors/offbodysensor/offbodysensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodysensor.cpp
+@@ -0,0 +1,78 @@
++#include "offbodysensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++OffBodySensorChannel::OffBodySensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<OffBodyData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("offbodyadaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<OffBodyData>(1);
++    outputBuffer_ = new RingBuffer<OffBodyData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "offbody");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("offbody", "source", "buffer", "sink");
++    connectToSource(adaptor_, "offbody", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("Off-body detection sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++OffBodySensorChannel::~OffBodySensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "offbody", reader_);
++        sm.releaseDeviceAdaptor("offbodyadaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool OffBodySensorChannel::start()
++{
++    sensordLogD() << "Starting OffBodySensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool OffBodySensorChannel::stop()
++{
++    sensordLogD() << "Stopping OffBodySensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void OffBodySensorChannel::emitData(const OffBodyData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/offbodysensor/offbodysensor.h b/sensors/offbodysensor/offbodysensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodysensor.h
+@@ -0,0 +1,53 @@
++#ifndef OFFBODYSENSOR_CHANNEL_H
++#define OFFBODYSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "offbodysensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/offbodydata.h"
++#include "datatypes/offbody.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class OffBodySensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<OffBodyData>
++{
++    Q_OBJECT
++    Q_PROPERTY(OffBody offbody READ offbody)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        OffBodySensorChannel* sc = new OffBodySensorChannel(id);
++        new OffBodySensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    OffBody offbody() const { return OffBody(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void offbodyChanged(const OffBody& value);
++
++protected:
++    OffBodySensorChannel(const QString& id);
++    virtual ~OffBodySensorChannel();
++
++private:
++    OffBodyData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<OffBodyData>* reader_;
++    RingBuffer<OffBodyData>* outputBuffer_;
++    void emitData(const OffBodyData& value);
++};
++
++#endif
+diff --git a/sensors/offbodysensor/offbodysensor.pro b/sensors/offbodysensor/offbodysensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/offbodysensor/offbodysensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = offbodysensor
++HEADERS += offbodysensor.h offbodysensor_a.h offbodyplugin.h
++SOURCES += offbodysensor.cpp offbodysensor_a.cpp offbodyplugin.cpp
++include( ../sensor-config.pri )
+diff --git a/datatypes/rawppgdata.h b/datatypes/rawppgdata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/rawppgdata.h
+@@ -0,0 +1,16 @@
++#ifndef RAWPPGDATA_H
++#define RAWPPGDATA_H
++
++#include "datatypes/genericdata.h"
++
++class RawPpgData : public TimedData {
++public:
++    RawPpgData() : TimedData(0), value_(0), status_(0) {}
++    RawPpgData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // raw photodetector value
++    int status_;    // accuracy/confidence
++};
++
++#endif // RAWPPGDATA_H
+diff --git a/datatypes/rawppg.h b/datatypes/rawppg.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/rawppg.h
+@@ -0,0 +1,54 @@
++#ifndef RAWPPG_H
++#define RAWPPG_H
++
++#include <QDBusArgument>
++#include <datatypes/rawppgdata.h>
++
++class RawPpg : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    RawPpg() {}
++    RawPpg(const RawPpgData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    RawPpg(const RawPpg& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const RawPpgData& rawppgData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    RawPpg& operator=(const RawPpg& origin)
++    {
++        data_ = origin.rawppgData();
++        return *this;
++    }
++
++private:
++    RawPpgData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, RawPpg& obj);
++};
++
++Q_DECLARE_METATYPE(RawPpg)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const RawPpg &obj)
++{
++    argument.beginStructure();
++    argument << obj.rawppgData().value_ << obj.rawppgData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, RawPpg &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // RAWPPG_H
+diff --git a/datatypes/rawppg.cpp b/datatypes/rawppg.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/rawppg.cpp
+@@ -0,0 +1,2 @@
++#include "rawppg.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.cpp b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisrawppgadaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_RAWPPG 65572
++
++HybrisRawPpgAdaptor::HybrisRawPpgAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_RAWPPG)
++{
++    buffer = new DeviceAdaptorRingBuffer<RawPpgData>(1);
++    setAdaptedSensor("rawppg", "Raw PPG waveform", buffer);
++    setDescription("Hybris Raw PPG waveform sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisRawPpgAdaptor::~HybrisRawPpgAdaptor() { delete buffer; }
++
++bool HybrisRawPpgAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisRawPpgAdaptor started";
++    return true;
++}
++
++void HybrisRawPpgAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for Raw PPG waveform sensor";
++}
++
++void HybrisRawPpgAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisRawPpgAdaptor stopped";
++}
++
++void HybrisRawPpgAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "RAWPPG RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    RawPpgData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.h b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISRAWPPGADAPTOR_H
++#define HYBRISRAWPPGADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/rawppgdata.h"
++
++class HybrisRawPpgAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisRawPpgAdaptor(id);
++    }
++    HybrisRawPpgAdaptor(const QString& id);
++    ~HybrisRawPpgAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<RawPpgData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptorplugin.cpp b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybrisrawppgadaptorplugin.h"
++#include "hybrisrawppgadaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisRawPpgAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybrisrawppgadaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisRawPpgAdaptor>("rawppgadaptor");
++}
+diff --git a/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptorplugin.h b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISRAWPPGADAPTORPLUGIN_H
++#define HYBRISRAWPPGADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisRawPpgAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.pro b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisrawppgadaptor/hybrisrawppgadaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybrisrawppgadaptor
++HEADERS += hybrisrawppgadaptor.h hybrisrawppgadaptorplugin.h
++SOURCES += hybrisrawppgadaptor.cpp hybrisrawppgadaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/rawppgsensor/rawppgplugin.cpp b/sensors/rawppgsensor/rawppgplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgplugin.cpp
+@@ -0,0 +1,20 @@
++#include "rawppgplugin.h"
++#include "rawppgsensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void RawPpgPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering rawppgsensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<RawPpgSensorChannel>("rawppgsensor");
++}
++
++void RawPpgPlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("rawppgsensor");
++}
++
++QStringList RawPpgPlugin::Dependencies() {
++    return QString("rawppgadaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/rawppgsensor/rawppgplugin.h b/sensors/rawppgsensor/rawppgplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgplugin.h
+@@ -0,0 +1,13 @@
++#ifndef RAWPPGPLUGIN_H
++#define RAWPPGPLUGIN_H
++#include "plugin.h"
++class RawPpgPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/rawppgsensor/rawppgsensor_a.cpp b/sensors/rawppgsensor/rawppgsensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgsensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "rawppgsensor_a.h"
++#include "rawppgsensor.h"
++
++RawPpgSensorChannelAdaptor::RawPpgSensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++RawPpg RawPpgSensorChannelAdaptor::rawppg() const
++{
++    return qobject_cast<const RawPpgSensorChannel*>(parent())->rawppg();
++}
+diff --git a/sensors/rawppgsensor/rawppgsensor_a.h b/sensors/rawppgsensor/rawppgsensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgsensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef RAWPPGSENSOR_A_H
++#define RAWPPGSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/rawppg.h"
++#include "abstractsensor_a.h"
++
++class RawPpgSensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.RawPpgSensor")
++    Q_PROPERTY(RawPpg rawppg READ rawppg)
++public:
++    RawPpgSensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    RawPpg rawppg() const;
++Q_SIGNALS:
++    void rawppgChanged(const RawPpg& value);
++};
++
++#endif
+diff --git a/sensors/rawppgsensor/rawppgsensor.cpp b/sensors/rawppgsensor/rawppgsensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgsensor.cpp
+@@ -0,0 +1,78 @@
++#include "rawppgsensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++RawPpgSensorChannel::RawPpgSensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<RawPpgData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("rawppgadaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<RawPpgData>(1);
++    outputBuffer_ = new RingBuffer<RawPpgData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "rawppg");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("rawppg", "source", "buffer", "sink");
++    connectToSource(adaptor_, "rawppg", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("Raw PPG waveform sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++RawPpgSensorChannel::~RawPpgSensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "rawppg", reader_);
++        sm.releaseDeviceAdaptor("rawppgadaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool RawPpgSensorChannel::start()
++{
++    sensordLogD() << "Starting RawPpgSensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool RawPpgSensorChannel::stop()
++{
++    sensordLogD() << "Stopping RawPpgSensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void RawPpgSensorChannel::emitData(const RawPpgData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/rawppgsensor/rawppgsensor.h b/sensors/rawppgsensor/rawppgsensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgsensor.h
+@@ -0,0 +1,53 @@
++#ifndef RAWPPGSENSOR_CHANNEL_H
++#define RAWPPGSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "rawppgsensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/rawppgdata.h"
++#include "datatypes/rawppg.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class RawPpgSensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<RawPpgData>
++{
++    Q_OBJECT
++    Q_PROPERTY(RawPpg rawppg READ rawppg)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        RawPpgSensorChannel* sc = new RawPpgSensorChannel(id);
++        new RawPpgSensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    RawPpg rawppg() const { return RawPpg(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void rawppgChanged(const RawPpg& value);
++
++protected:
++    RawPpgSensorChannel(const QString& id);
++    virtual ~RawPpgSensorChannel();
++
++private:
++    RawPpgData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<RawPpgData>* reader_;
++    RingBuffer<RawPpgData>* outputBuffer_;
++    void emitData(const RawPpgData& value);
++};
++
++#endif
+diff --git a/sensors/rawppgsensor/rawppgsensor.pro b/sensors/rawppgsensor/rawppgsensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/rawppgsensor/rawppgsensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = rawppgsensor
++HEADERS += rawppgsensor.h rawppgsensor_a.h rawppgplugin.h
++SOURCES += rawppgsensor.cpp rawppgsensor_a.cpp rawppgplugin.cpp
++include( ../sensor-config.pri )
+diff --git a/datatypes/caloriesdata.h b/datatypes/caloriesdata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/caloriesdata.h
+@@ -0,0 +1,16 @@
++#ifndef CALORIESDATA_H
++#define CALORIESDATA_H
++
++#include "datatypes/genericdata.h"
++
++class CaloriesData : public TimedData {
++public:
++    CaloriesData() : TimedData(0), value_(0), status_(0) {}
++    CaloriesData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // calories burned
++    int status_;    // accuracy/confidence
++};
++
++#endif // CALORIESDATA_H
+diff --git a/datatypes/calories.h b/datatypes/calories.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/calories.h
+@@ -0,0 +1,54 @@
++#ifndef CALORIES_H
++#define CALORIES_H
++
++#include <QDBusArgument>
++#include <datatypes/caloriesdata.h>
++
++class Calories : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    Calories() {}
++    Calories(const CaloriesData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    Calories(const Calories& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const CaloriesData& caloriesData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    Calories& operator=(const Calories& origin)
++    {
++        data_ = origin.caloriesData();
++        return *this;
++    }
++
++private:
++    CaloriesData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, Calories& obj);
++};
++
++Q_DECLARE_METATYPE(Calories)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const Calories &obj)
++{
++    argument.beginStructure();
++    argument << obj.caloriesData().value_ << obj.caloriesData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, Calories &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // CALORIES_H
+diff --git a/datatypes/calories.cpp b/datatypes/calories.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/calories.cpp
+@@ -0,0 +1,2 @@
++#include "calories.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.cpp b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybriscaloriesadaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_CALORIES 65573
++
++HybrisCaloriesAdaptor::HybrisCaloriesAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_CALORIES)
++{
++    buffer = new DeviceAdaptorRingBuffer<CaloriesData>(1);
++    setAdaptedSensor("calories", "Calorie estimation", buffer);
++    setDescription("Hybris Calorie estimation sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisCaloriesAdaptor::~HybrisCaloriesAdaptor() { delete buffer; }
++
++bool HybrisCaloriesAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisCaloriesAdaptor started";
++    return true;
++}
++
++void HybrisCaloriesAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for Calorie estimation sensor";
++}
++
++void HybrisCaloriesAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisCaloriesAdaptor stopped";
++}
++
++void HybrisCaloriesAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "CALORIES RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    CaloriesData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.h b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISCALORIESADAPTOR_H
++#define HYBRISCALORIESADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/caloriesdata.h"
++
++class HybrisCaloriesAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisCaloriesAdaptor(id);
++    }
++    HybrisCaloriesAdaptor(const QString& id);
++    ~HybrisCaloriesAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<CaloriesData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptorplugin.cpp b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybriscaloriesadaptorplugin.h"
++#include "hybriscaloriesadaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisCaloriesAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybriscaloriesadaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisCaloriesAdaptor>("caloriesadaptor");
++}
+diff --git a/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptorplugin.h b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISCALORIESADAPTORPLUGIN_H
++#define HYBRISCALORIESADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisCaloriesAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.pro b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybriscaloriesadaptor/hybriscaloriesadaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybriscaloriesadaptor
++HEADERS += hybriscaloriesadaptor.h hybriscaloriesadaptorplugin.h
++SOURCES += hybriscaloriesadaptor.cpp hybriscaloriesadaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/caloriessensor/caloriesplugin.cpp b/sensors/caloriessensor/caloriesplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriesplugin.cpp
+@@ -0,0 +1,20 @@
++#include "caloriesplugin.h"
++#include "caloriessensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void CaloriesPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering caloriessensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<CaloriesSensorChannel>("caloriessensor");
++}
++
++void CaloriesPlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("caloriessensor");
++}
++
++QStringList CaloriesPlugin::Dependencies() {
++    return QString("caloriesadaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/caloriessensor/caloriesplugin.h b/sensors/caloriessensor/caloriesplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriesplugin.h
+@@ -0,0 +1,13 @@
++#ifndef CALORIESPLUGIN_H
++#define CALORIESPLUGIN_H
++#include "plugin.h"
++class CaloriesPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/caloriessensor/caloriessensor_a.cpp b/sensors/caloriessensor/caloriessensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriessensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "caloriessensor_a.h"
++#include "caloriessensor.h"
++
++CaloriesSensorChannelAdaptor::CaloriesSensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++Calories CaloriesSensorChannelAdaptor::calories() const
++{
++    return qobject_cast<const CaloriesSensorChannel*>(parent())->calories();
++}
+diff --git a/sensors/caloriessensor/caloriessensor_a.h b/sensors/caloriessensor/caloriessensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriessensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef CALORIESSENSOR_A_H
++#define CALORIESSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/calories.h"
++#include "abstractsensor_a.h"
++
++class CaloriesSensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.CaloriesSensor")
++    Q_PROPERTY(Calories calories READ calories)
++public:
++    CaloriesSensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    Calories calories() const;
++Q_SIGNALS:
++    void caloriesChanged(const Calories& value);
++};
++
++#endif
+diff --git a/sensors/caloriessensor/caloriessensor.cpp b/sensors/caloriessensor/caloriessensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriessensor.cpp
+@@ -0,0 +1,78 @@
++#include "caloriessensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++CaloriesSensorChannel::CaloriesSensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<CaloriesData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("caloriesadaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<CaloriesData>(1);
++    outputBuffer_ = new RingBuffer<CaloriesData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "calories");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("calories", "source", "buffer", "sink");
++    connectToSource(adaptor_, "calories", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("Calorie estimation sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++CaloriesSensorChannel::~CaloriesSensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "calories", reader_);
++        sm.releaseDeviceAdaptor("caloriesadaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool CaloriesSensorChannel::start()
++{
++    sensordLogD() << "Starting CaloriesSensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool CaloriesSensorChannel::stop()
++{
++    sensordLogD() << "Stopping CaloriesSensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void CaloriesSensorChannel::emitData(const CaloriesData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/caloriessensor/caloriessensor.h b/sensors/caloriessensor/caloriessensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriessensor.h
+@@ -0,0 +1,53 @@
++#ifndef CALORIESSENSOR_CHANNEL_H
++#define CALORIESSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "caloriessensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/caloriesdata.h"
++#include "datatypes/calories.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class CaloriesSensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<CaloriesData>
++{
++    Q_OBJECT
++    Q_PROPERTY(Calories calories READ calories)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        CaloriesSensorChannel* sc = new CaloriesSensorChannel(id);
++        new CaloriesSensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    Calories calories() const { return Calories(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void caloriesChanged(const Calories& value);
++
++protected:
++    CaloriesSensorChannel(const QString& id);
++    virtual ~CaloriesSensorChannel();
++
++private:
++    CaloriesData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<CaloriesData>* reader_;
++    RingBuffer<CaloriesData>* outputBuffer_;
++    void emitData(const CaloriesData& value);
++};
++
++#endif
+diff --git a/sensors/caloriessensor/caloriessensor.pro b/sensors/caloriessensor/caloriessensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/caloriessensor/caloriessensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = caloriessensor
++HEADERS += caloriessensor.h caloriessensor_a.h caloriesplugin.h
++SOURCES += caloriessensor.cpp caloriessensor_a.cpp caloriesplugin.cpp
++include( ../sensor-config.pri )
+diff --git a/datatypes/dailyrhrdata.h b/datatypes/dailyrhrdata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/dailyrhrdata.h
+@@ -0,0 +1,16 @@
++#ifndef DAILYRHRDATA_H
++#define DAILYRHRDATA_H
++
++#include "datatypes/genericdata.h"
++
++class DailyRhrData : public TimedData {
++public:
++    DailyRhrData() : TimedData(0), value_(0), status_(0) {}
++    DailyRhrData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // resting heart rate BPM
++    int status_;    // accuracy/confidence
++};
++
++#endif // DAILYRHRDATA_H
+diff --git a/datatypes/dailyrhr.h b/datatypes/dailyrhr.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/dailyrhr.h
+@@ -0,0 +1,54 @@
++#ifndef DAILYRHR_H
++#define DAILYRHR_H
++
++#include <QDBusArgument>
++#include <datatypes/dailyrhrdata.h>
++
++class DailyRhr : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    DailyRhr() {}
++    DailyRhr(const DailyRhrData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    DailyRhr(const DailyRhr& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const DailyRhrData& dailyrhrData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    DailyRhr& operator=(const DailyRhr& origin)
++    {
++        data_ = origin.dailyrhrData();
++        return *this;
++    }
++
++private:
++    DailyRhrData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, DailyRhr& obj);
++};
++
++Q_DECLARE_METATYPE(DailyRhr)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const DailyRhr &obj)
++{
++    argument.beginStructure();
++    argument << obj.dailyrhrData().value_ << obj.dailyrhrData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, DailyRhr &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // DAILYRHR_H
+diff --git a/datatypes/dailyrhr.cpp b/datatypes/dailyrhr.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/dailyrhr.cpp
+@@ -0,0 +1,2 @@
++#include "dailyrhr.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.cpp b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisdailyrhradaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_DAILYRHR 65581
++
++HybrisDailyRhrAdaptor::HybrisDailyRhrAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_DAILYRHR)
++{
++    buffer = new DeviceAdaptorRingBuffer<DailyRhrData>(1);
++    setAdaptedSensor("dailyrhr", "Daily resting heart rate", buffer);
++    setDescription("Hybris Daily resting heart rate sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisDailyRhrAdaptor::~HybrisDailyRhrAdaptor() { delete buffer; }
++
++bool HybrisDailyRhrAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisDailyRhrAdaptor started";
++    return true;
++}
++
++void HybrisDailyRhrAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for Daily resting heart rate sensor";
++}
++
++void HybrisDailyRhrAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisDailyRhrAdaptor stopped";
++}
++
++void HybrisDailyRhrAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "DAILYRHR RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    DailyRhrData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.h b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISDAILYRHRADAPTOR_H
++#define HYBRISDAILYRHRADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/dailyrhrdata.h"
++
++class HybrisDailyRhrAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisDailyRhrAdaptor(id);
++    }
++    HybrisDailyRhrAdaptor(const QString& id);
++    ~HybrisDailyRhrAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<DailyRhrData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptorplugin.cpp b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybrisdailyrhradaptorplugin.h"
++#include "hybrisdailyrhradaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisDailyRhrAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybrisdailyrhradaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisDailyRhrAdaptor>("dailyrhradaptor");
++}
+diff --git a/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptorplugin.h b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISDAILYRHRADAPTORPLUGIN_H
++#define HYBRISDAILYRHRADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisDailyRhrAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.pro b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisdailyrhradaptor/hybrisdailyrhradaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybrisdailyrhradaptor
++HEADERS += hybrisdailyrhradaptor.h hybrisdailyrhradaptorplugin.h
++SOURCES += hybrisdailyrhradaptor.cpp hybrisdailyrhradaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/dailyrhrsensor/dailyrhrplugin.cpp b/sensors/dailyrhrsensor/dailyrhrplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrplugin.cpp
+@@ -0,0 +1,20 @@
++#include "dailyrhrplugin.h"
++#include "dailyrhrsensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void DailyRhrPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering dailyrhrsensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<DailyRhrSensorChannel>("dailyrhrsensor");
++}
++
++void DailyRhrPlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("dailyrhrsensor");
++}
++
++QStringList DailyRhrPlugin::Dependencies() {
++    return QString("dailyrhradaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/dailyrhrsensor/dailyrhrplugin.h b/sensors/dailyrhrsensor/dailyrhrplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrplugin.h
+@@ -0,0 +1,13 @@
++#ifndef DAILYRHRPLUGIN_H
++#define DAILYRHRPLUGIN_H
++#include "plugin.h"
++class DailyRhrPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/dailyrhrsensor/dailyrhrsensor_a.cpp b/sensors/dailyrhrsensor/dailyrhrsensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrsensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "dailyrhrsensor_a.h"
++#include "dailyrhrsensor.h"
++
++DailyRhrSensorChannelAdaptor::DailyRhrSensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++DailyRhr DailyRhrSensorChannelAdaptor::dailyrhr() const
++{
++    return qobject_cast<const DailyRhrSensorChannel*>(parent())->dailyrhr();
++}
+diff --git a/sensors/dailyrhrsensor/dailyrhrsensor_a.h b/sensors/dailyrhrsensor/dailyrhrsensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrsensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef DAILYRHRSENSOR_A_H
++#define DAILYRHRSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/dailyrhr.h"
++#include "abstractsensor_a.h"
++
++class DailyRhrSensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.DailyRhrSensor")
++    Q_PROPERTY(DailyRhr dailyrhr READ dailyrhr)
++public:
++    DailyRhrSensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    DailyRhr dailyrhr() const;
++Q_SIGNALS:
++    void dailyrhrChanged(const DailyRhr& value);
++};
++
++#endif
+diff --git a/sensors/dailyrhrsensor/dailyrhrsensor.cpp b/sensors/dailyrhrsensor/dailyrhrsensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrsensor.cpp
+@@ -0,0 +1,78 @@
++#include "dailyrhrsensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++DailyRhrSensorChannel::DailyRhrSensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<DailyRhrData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("dailyrhradaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<DailyRhrData>(1);
++    outputBuffer_ = new RingBuffer<DailyRhrData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "dailyrhr");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("dailyrhr", "source", "buffer", "sink");
++    connectToSource(adaptor_, "dailyrhr", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("Daily resting heart rate sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++DailyRhrSensorChannel::~DailyRhrSensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "dailyrhr", reader_);
++        sm.releaseDeviceAdaptor("dailyrhradaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool DailyRhrSensorChannel::start()
++{
++    sensordLogD() << "Starting DailyRhrSensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool DailyRhrSensorChannel::stop()
++{
++    sensordLogD() << "Stopping DailyRhrSensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void DailyRhrSensorChannel::emitData(const DailyRhrData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/dailyrhrsensor/dailyrhrsensor.h b/sensors/dailyrhrsensor/dailyrhrsensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrsensor.h
+@@ -0,0 +1,53 @@
++#ifndef DAILYRHRSENSOR_CHANNEL_H
++#define DAILYRHRSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "dailyrhrsensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/dailyrhrdata.h"
++#include "datatypes/dailyrhr.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class DailyRhrSensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<DailyRhrData>
++{
++    Q_OBJECT
++    Q_PROPERTY(DailyRhr dailyrhr READ dailyrhr)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        DailyRhrSensorChannel* sc = new DailyRhrSensorChannel(id);
++        new DailyRhrSensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    DailyRhr dailyrhr() const { return DailyRhr(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void dailyrhrChanged(const DailyRhr& value);
++
++protected:
++    DailyRhrSensorChannel(const QString& id);
++    virtual ~DailyRhrSensorChannel();
++
++private:
++    DailyRhrData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<DailyRhrData>* reader_;
++    RingBuffer<DailyRhrData>* outputBuffer_;
++    void emitData(const DailyRhrData& value);
++};
++
++#endif
+diff --git a/sensors/dailyrhrsensor/dailyrhrsensor.pro b/sensors/dailyrhrsensor/dailyrhrsensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/dailyrhrsensor/dailyrhrsensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = dailyrhrsensor
++HEADERS += dailyrhrsensor.h dailyrhrsensor_a.h dailyrhrplugin.h
++SOURCES += dailyrhrsensor.cpp dailyrhrsensor_a.cpp dailyrhrplugin.cpp
++include( ../sensor-config.pri )
+diff --git a/datatypes/basalrhrdata.h b/datatypes/basalrhrdata.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/basalrhrdata.h
+@@ -0,0 +1,16 @@
++#ifndef BASALRHRDATA_H
++#define BASALRHRDATA_H
++
++#include "datatypes/genericdata.h"
++
++class BasalRhrData : public TimedData {
++public:
++    BasalRhrData() : TimedData(0), value_(0), status_(0) {}
++    BasalRhrData(const quint64& timestamp, float value, int status)
++        : TimedData(timestamp), value_(value), status_(status) {}
++
++    float value_;   // basal resting heart rate BPM
++    int status_;    // accuracy/confidence
++};
++
++#endif // BASALRHRDATA_H
+diff --git a/datatypes/basalrhr.h b/datatypes/basalrhr.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/basalrhr.h
+@@ -0,0 +1,54 @@
++#ifndef BASALRHR_H
++#define BASALRHR_H
++
++#include <QDBusArgument>
++#include <datatypes/basalrhrdata.h>
++
++class BasalRhr : public QObject
++{
++    Q_OBJECT
++    Q_PROPERTY(float value READ value)
++    Q_PROPERTY(int status READ status)
++
++public:
++    BasalRhr() {}
++    BasalRhr(const BasalRhrData& data) : QObject(), data_(data.timestamp_, data.value_, data.status_) {}
++    BasalRhr(const BasalRhr& other) : QObject(), data_(other.data_.timestamp_, other.data_.value_, other.data_.status_) {}
++
++    const BasalRhrData& basalrhrData() const { return data_; }
++    float value() const { return data_.value_; }
++    int status() const { return data_.status_; }
++
++    BasalRhr& operator=(const BasalRhr& origin)
++    {
++        data_ = origin.basalrhrData();
++        return *this;
++    }
++
++private:
++    BasalRhrData data_;
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, BasalRhr& obj);
++};
++
++Q_DECLARE_METATYPE(BasalRhr)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const BasalRhr &obj)
++{
++    argument.beginStructure();
++    argument << obj.basalrhrData().value_ << obj.basalrhrData().status_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, BasalRhr &obj)
++{
++    double value; int status;
++    argument.beginStructure();
++    argument >> value >> status;
++    argument.endStructure();
++    obj.data_.value_ = value;
++    obj.data_.status_ = status;
++    return argument;
++}
++
++#endif // BASALRHR_H
+diff --git a/datatypes/basalrhr.cpp b/datatypes/basalrhr.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/datatypes/basalrhr.cpp
+@@ -0,0 +1,2 @@
++#include "basalrhr.h"
++// Inline constructors only — no additional methods needed.
+diff --git a/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.cpp b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.cpp
+@@ -0,0 +1,72 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisbasalrhradaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++
++#define SENSOR_TYPE_BASALRHR 65582
++
++HybrisBasalRhrAdaptor::HybrisBasalRhrAdaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_BASALRHR)
++{
++    buffer = new DeviceAdaptorRingBuffer<BasalRhrData>(1);
++    setAdaptedSensor("basalrhr", "Basal resting heart rate", buffer);
++    setDescription("Hybris Basal resting heart rate sensor");
++    setInterval(0, 1000000);
++}
++
++HybrisBasalRhrAdaptor::~HybrisBasalRhrAdaptor() { delete buffer; }
++
++bool HybrisBasalRhrAdaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor())) return false;
++    sensordLogD() << "HybrisBasalRhrAdaptor started";
++    return true;
++}
++
++void HybrisBasalRhrAdaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for Basal resting heart rate sensor";
++}
++
++void HybrisBasalRhrAdaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisBasalRhrAdaptor stopped";
++}
++
++void HybrisBasalRhrAdaptor::processSample(const sensors_event_t& data)
++{
++    sensordLogW() << "BASALRHR RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3]
++                  << " data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5];
++
++    BasalRhrData *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++    d->value_ = data.u.data[0];
++    d->status_ = (int)data.u.data[1];
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.h b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.h
+@@ -0,0 +1,44 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISBASALRHRADAPTOR_H
++#define HYBRISBASALRHRADAPTOR_H
++#include "hybrisadaptor.h"
++#include <QString>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/basalrhrdata.h"
++
++class HybrisBasalRhrAdaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisBasalRhrAdaptor(id);
++    }
++    HybrisBasalRhrAdaptor(const QString& id);
++    ~HybrisBasalRhrAdaptor();
++    bool startSensor();
++    void stopSensor();
++    void sendInitialData();
++protected:
++    void processSample(const sensors_event_t& data);
++private:
++    DeviceAdaptorRingBuffer<BasalRhrData>* buffer;
++};
++#endif
+diff --git a/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptorplugin.cpp b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptorplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptorplugin.cpp
+@@ -0,0 +1,11 @@
++#include "hybrisbasalrhradaptorplugin.h"
++#include "hybrisbasalrhradaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisBasalRhrAdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybrisbasalrhradaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisBasalRhrAdaptor>("basalrhradaptor");
++}
+diff --git a/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptorplugin.h b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptorplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptorplugin.h
+@@ -0,0 +1,11 @@
++#ifndef HYBRISBASALRHRADAPTORPLUGIN_H
++#define HYBRISBASALRHRADAPTORPLUGIN_H
++#include "plugin.h"
++class HybrisBasalRhrAdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++private:
++    void Register(class Loader& l);
++};
++#endif
+diff --git a/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.pro b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisbasalrhradaptor/hybrisbasalrhradaptor.pro
+@@ -0,0 +1,8 @@
++TARGET       = hybrisbasalrhradaptor
++HEADERS += hybrisbasalrhradaptor.h hybrisbasalrhradaptorplugin.h
++SOURCES += hybrisbasalrhradaptor.cpp hybrisbasalrhradaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/sensors/basalrhrsensor/basalrhrplugin.cpp b/sensors/basalrhrsensor/basalrhrplugin.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrplugin.cpp
+@@ -0,0 +1,20 @@
++#include "basalrhrplugin.h"
++#include "basalrhrsensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void BasalRhrPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering basalrhrsensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<BasalRhrSensorChannel>("basalrhrsensor");
++}
++
++void BasalRhrPlugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("basalrhrsensor");
++}
++
++QStringList BasalRhrPlugin::Dependencies() {
++    return QString("basalrhradaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/basalrhrsensor/basalrhrplugin.h b/sensors/basalrhrsensor/basalrhrplugin.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrplugin.h
+@@ -0,0 +1,13 @@
++#ifndef BASALRHRPLUGIN_H
++#define BASALRHRPLUGIN_H
++#include "plugin.h"
++class BasalRhrPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++#endif
+diff --git a/sensors/basalrhrsensor/basalrhrsensor_a.cpp b/sensors/basalrhrsensor/basalrhrsensor_a.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrsensor_a.cpp
+@@ -0,0 +1,10 @@
++#include "basalrhrsensor_a.h"
++#include "basalrhrsensor.h"
++
++BasalRhrSensorChannelAdaptor::BasalRhrSensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent) {}
++
++BasalRhr BasalRhrSensorChannelAdaptor::basalrhr() const
++{
++    return qobject_cast<const BasalRhrSensorChannel*>(parent())->basalrhr();
++}
+diff --git a/sensors/basalrhrsensor/basalrhrsensor_a.h b/sensors/basalrhrsensor/basalrhrsensor_a.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrsensor_a.h
+@@ -0,0 +1,22 @@
++#ifndef BASALRHRSENSOR_A_H
++#define BASALRHRSENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++#include "datatypes/basalrhr.h"
++#include "abstractsensor_a.h"
++
++class BasalRhrSensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.BasalRhrSensor")
++    Q_PROPERTY(BasalRhr basalrhr READ basalrhr)
++public:
++    BasalRhrSensorChannelAdaptor(QObject *parent);
++public Q_SLOTS:
++    BasalRhr basalrhr() const;
++Q_SIGNALS:
++    void basalrhrChanged(const BasalRhr& value);
++};
++
++#endif
+diff --git a/sensors/basalrhrsensor/basalrhrsensor.cpp b/sensors/basalrhrsensor/basalrhrsensor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrsensor.cpp
+@@ -0,0 +1,78 @@
++#include "basalrhrsensor.h"
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "logging.h"
++
++BasalRhrSensorChannel::BasalRhrSensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<BasalRhrData>(1),
++        previousValue_(0, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++    adaptor_ = sm.requestDeviceAdaptor("basalrhradaptor");
++    if (!adaptor_) { setValid(false); return; }
++
++    reader_ = new BufferReader<BasalRhrData>(1);
++    outputBuffer_ = new RingBuffer<BasalRhrData>(1);
++
++    filterBin_ = new Bin;
++    filterBin_->add(reader_, "basalrhr");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("basalrhr", "source", "buffer", "sink");
++    connectToSource(adaptor_, "basalrhr", reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++    outputBuffer_->join(this);
++
++    setDescription("Basal resting heart rate sensor");
++    setRangeSource(adaptor_);
++    addStandbyOverrideSource(adaptor_);
++    setIntervalSource(adaptor_);
++    setValid(true);
++}
++
++BasalRhrSensorChannel::~BasalRhrSensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++        disconnectFromSource(adaptor_, "basalrhr", reader_);
++        sm.releaseDeviceAdaptor("basalrhradaptor");
++        delete reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool BasalRhrSensorChannel::start()
++{
++    sensordLogD() << "Starting BasalRhrSensorChannel";
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool BasalRhrSensorChannel::stop()
++{
++    sensordLogD() << "Stopping BasalRhrSensorChannel";
++    if (AbstractSensorChannel::stop()) {
++        adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void BasalRhrSensorChannel::emitData(const BasalRhrData& value)
++{
++    if (value.value_ != previousValue_.value_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/basalrhrsensor/basalrhrsensor.h b/sensors/basalrhrsensor/basalrhrsensor.h
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrsensor.h
+@@ -0,0 +1,53 @@
++#ifndef BASALRHRSENSOR_CHANNEL_H
++#define BASALRHRSENSOR_CHANNEL_H
++
++#include <QObject>
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "basalrhrsensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/basalrhrdata.h"
++#include "datatypes/basalrhr.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++class BasalRhrSensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<BasalRhrData>
++{
++    Q_OBJECT
++    Q_PROPERTY(BasalRhr basalrhr READ basalrhr)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        BasalRhrSensorChannel* sc = new BasalRhrSensorChannel(id);
++        new BasalRhrSensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    BasalRhr basalrhr() const { return BasalRhr(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void basalrhrChanged(const BasalRhr& value);
++
++protected:
++    BasalRhrSensorChannel(const QString& id);
++    virtual ~BasalRhrSensorChannel();
++
++private:
++    BasalRhrData previousValue_;
++    Bin* filterBin_;
++    Bin* marshallingBin_;
++    DeviceAdaptor* adaptor_;
++    BufferReader<BasalRhrData>* reader_;
++    RingBuffer<BasalRhrData>* outputBuffer_;
++    void emitData(const BasalRhrData& value);
++};
++
++#endif
+diff --git a/sensors/basalrhrsensor/basalrhrsensor.pro b/sensors/basalrhrsensor/basalrhrsensor.pro
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/sensors/basalrhrsensor/basalrhrsensor.pro
+@@ -0,0 +1,6 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++TARGET       = basalrhrsensor
++HEADERS += basalrhrsensor.h basalrhrsensor_a.h basalrhrplugin.h
++SOURCES += basalrhrsensor.cpp basalrhrsensor_a.cpp basalrhrplugin.cpp
++include( ../sensor-config.pri )

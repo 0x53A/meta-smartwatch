@@ -1,0 +1,84 @@
+From fcaae979e907a94869e23ea3122253990d5a9b82 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Sat, 14 Mar 2026 00:55:34 +0100
+Subject: [PATCH] usb_moded-configfs: Add ADB (ffs.adb) function support
+
+The configfs backend only maps mass_storage, rndis, and mtp functions.
+Devices using configfs with functionfs-based ADB (ffs.adb) cannot switch
+to adb_mode because the function name "adb" from adb_mode.ini is not
+mapped to a configfs function directory.
+
+Add FUNCTION_ADB with default "ffs.adb", configurable via function_adb
+in the [configfs] section of usb-moded.ini, following the same pattern
+as the existing three functions.
+
+Upstream-Status: Pending
+
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ src/usb_moded-configfs.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/src/usb_moded-configfs.c b/src/usb_moded-configfs.c
+index c114fbc..cb7719f 100644
+--- a/src/usb_moded-configfs.c
++++ b/src/usb_moded-configfs.c
+@@ -53,6 +53,7 @@
+ #define DEFAULT_FUNCTION_MASS_STORAGE    "mass_storage.usb0"
+ #define DEFAULT_FUNCTION_RNDIS           "rndis.rndis"
+ #define DEFAULT_FUNCTION_MTP             "ffs.mtp"
++#define DEFAULT_FUNCTION_ADB             "ffs.adb"
+ 
+ #define DEFAULT_RNDIS_CTRL_WCEIS         "wceis"
+ #define DEFAULT_RNDIS_CTRL_ETHADDR       "ethaddr"
+@@ -124,6 +125,7 @@ static gchar *GADGET_CTRL_SERIAL       = 0;
+ static gchar *FUNCTION_MASS_STORAGE    = 0;
+ static gchar *FUNCTION_RNDIS           = 0;
+ static gchar *FUNCTION_MTP             = 0;
++static gchar *FUNCTION_ADB             = 0;
+ 
+ static gchar *RNDIS_CTRL_WCEIS         = 0;
+ static gchar *RNDIS_CTRL_ETHADDR       = 0;
+@@ -233,6 +235,10 @@ static void configfs_read_configuration(void)
+         configfs_get_conf("function_mtp",
+                           DEFAULT_FUNCTION_MTP);
+ 
++    FUNCTION_ADB =
++        configfs_get_conf("function_adb",
++                          DEFAULT_FUNCTION_ADB);
++
+     /* Function control files */
+     RNDIS_CTRL_WCEIS =
+         g_strdup_printf("%s/%s/%s",
+@@ -795,6 +801,9 @@ configfs_init(void)
+ 
+     /* Prep: developer_mode */
+     configfs_register_function(FUNCTION_RNDIS);
++
++    /* Prep: adb_mode */
++    configfs_register_function(FUNCTION_ADB);
+     if( (text = mac_read_mac()) ) {
+         configfs_write_file(RNDIS_CTRL_ETHADDR, text);
+         g_free(text);
+@@ -838,6 +847,8 @@ configfs_quit(void)
+         FUNCTION_RNDIS = 0;
+     g_free(FUNCTION_MTP),
+         FUNCTION_MTP = 0;
++    g_free(FUNCTION_ADB),
++        FUNCTION_ADB = 0;
+ 
+     g_free(RNDIS_CTRL_WCEIS),
+         RNDIS_CTRL_WCEIS = 0;
+@@ -945,7 +956,9 @@ configfs_map_function(const char *func)
+         func = FUNCTION_RNDIS;
+     else if( !strcmp(func, "mtp") )
+         func = FUNCTION_MTP;
+-    else if( !strcmp(func, "ffs") ) // existing config files ...
++    else if( !strcmp(func, "adb") )
++        func = FUNCTION_ADB;
++    else if( !strcmp(func, "ffs") ) // legacy config files ...
+         func = FUNCTION_MTP;
+     return func;
+ }
+--
+2.34.1

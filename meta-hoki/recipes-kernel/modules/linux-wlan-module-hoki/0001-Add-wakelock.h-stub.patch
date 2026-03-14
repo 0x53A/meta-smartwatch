@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Sat, 14 Mar 2026 12:00:00 +0100
+Subject: [PATCH] Add wakelock.h stub for kernels that removed it
+
+The kernel 4.14 for hoki does not export wakelock.h to the staging
+headers. Provide a minimal stub that satisfies the prima driver's
+includes without requiring the actual wakelock API.
+
+Upstream-Status: Inappropriate [hoki-specific build workaround]
+
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ wakelock_stub/linux/wakelock.h | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+ create mode 100644 wakelock_stub/linux/wakelock.h
+
+diff --git a/wakelock_stub/linux/wakelock.h b/wakelock_stub/linux/wakelock.h
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/wakelock_stub/linux/wakelock.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: ISC */
++/*
++ * Minimal wakelock.h stub for prima WLAN driver.
++ * The actual wakelock API is not used — prima only includes the header.
++ */
++#ifndef _LINUX_WAKELOCK_H
++#define _LINUX_WAKELOCK_H
++
++#include <linux/ktime.h>
++#include <linux/device.h>
++
++/* wake_lock API removed; prima doesn't actually call these functions */
++
++#endif /* _LINUX_WAKELOCK_H */
+--
+2.34.1

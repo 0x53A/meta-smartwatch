@@ -1,0 +1,151 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Sat, 8 Mar 2026 14:00:00 +0100
+Subject: [PATCH] Fix compass degrees: use qreal and fmod instead of int modulo
+
+The compass heading was truncated to integer degrees and used C integer
+modulo which gives wrong results for negative floats. Switch to qreal
+(double) for sub-degree precision and fmod() for correct wrapping.
+
+Upstream-Status: Inappropriate
+
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+diff --git a/adaptors/hybrisgeorotationadaptor/hybrisgeorotationadaptor.cpp b/adaptors/hybrisgeorotationadaptor/hybrisgeorotationadaptor.cpp
+index f8b8bc5..61baea8 100644
+--- a/adaptors/hybrisgeorotationadaptor/hybrisgeorotationadaptor.cpp
++++ b/adaptors/hybrisgeorotationadaptor/hybrisgeorotationadaptor.cpp
+@@ -26,6 +26,7 @@
+ 
+ #include <QtCore/qmath.h>
+ #include <QtGlobal>
++#include <cmath>
+ 
+ /*
+  * azimuth: angle between the magnetic north direction and the Y axis, around
+@@ -97,7 +98,7 @@ void HybrisGeoRotationAdaptor::processSample(const sensors_event_t& data)
+     float R1 = q1_q2 - q3_q0;
+     float R4 = 1 - sq_q1 - sq_q3;
+     float azimuth = qAtan2(R1, R4) * RADIANS_TO_DEGREES;
+-    d->degrees_ = (int)(azimuth + 360) % 360;
++    d->degrees_ = fmod(azimuth + 360.0, 360.0);
+     d->rawDegrees_ = d->degrees_;
+ 
+     // level_ is set to 3 (pass csd) when accuracy is higher than 10 degrees
+diff --git a/adaptors/hybrisrotationadaptor/hybrisrotationadaptor.cpp b/adaptors/hybrisrotationadaptor/hybrisrotationadaptor.cpp
+index ab961a5..bb3c30b 100644
+--- a/adaptors/hybrisrotationadaptor/hybrisrotationadaptor.cpp
++++ b/adaptors/hybrisrotationadaptor/hybrisrotationadaptor.cpp
+@@ -26,6 +26,7 @@
+ 
+ #include <QtCore/qmath.h>
+ #include <QtGlobal>
++#include <cmath>
+ 
+ #define RADIANS_TO_DEGREES 57.2957795
+ 
+@@ -99,7 +100,7 @@ void HybrisRotationAdaptor::processSample(const sensors_event_t& data)
+     float R1 = q1_q2 - q3_q0;
+     float R4 = 1 - sq_q1 - sq_q3;
+     float azimuth = qAtan2(R1, R4) * RADIANS_TO_DEGREES;
+-    d->degrees_ = (int)(azimuth + 360) % 360;
++    d->degrees_ = fmod(azimuth + 360.0, 360.0);
+     d->rawDegrees_ = d->degrees_;
+ 
+     // level_ is set to 3 (pass csd) when accuracy is higher than 10 degrees
+diff --git a/chains/compasschain/compassfilter.cpp b/chains/compasschain/compassfilter.cpp
+index 8917c77..33bfe2d 100644
+--- a/chains/compasschain/compassfilter.cpp
++++ b/chains/compasschain/compassfilter.cpp
+@@ -21,6 +21,7 @@
+ #include "config.h"
+ 
+ #include <QtCore/qmath.h>
++#include <cmath>
+ 
+ #define RADIANS_TO_DEGREES 57.2957795
+ #define DEGREES_TO_RADIANS 0.017453292
+@@ -116,7 +117,7 @@ void CompassFilter::accelDataAvailable(unsigned, const AccelerationData *data)
+ 
+     CompassData compassData; //north angle
+     compassData.timestamp_ = data->timestamp_;
+-    compassData.degrees_ = (int)(heading + 360) % 360;
++    compassData.degrees_ = fmod(heading + 360.0, 360.0);
+     compassData.rawDegrees_ = compassData.degrees_;
+     compassData.level_ = level;
+     magSource.propagate(1, &compassData);
+diff --git a/datatypes/compass.h b/datatypes/compass.h
+index a9ce1fc..bcbe850 100644
+--- a/datatypes/compass.h
++++ b/datatypes/compass.h
+@@ -39,7 +39,7 @@ class Compass : public QObject
+ public:
+     Q_OBJECT
+ 
+-    Q_PROPERTY(int degrees READ degrees)
++    Q_PROPERTY(qreal degrees READ degrees)
+     Q_PROPERTY(int level READ level)
+ 
+ public:
+@@ -82,7 +82,7 @@ public:
+      * Returns the value for degrees.
+      * @return degree value.
+      */
+-    int degrees() const { return data_.degrees_; }
++    qreal degrees() const { return data_.degrees_; }
+ 
+     /**
+      * Returns the value for level.
+diff --git a/datatypes/orientationdata.h b/datatypes/orientationdata.h
+index ca72eff..22d6fe1 100644
+--- a/datatypes/orientationdata.h
++++ b/datatypes/orientationdata.h
+@@ -123,7 +123,7 @@ public:
+      * @param degrees Angle to north.
+      * @param level Magnetometer calibration level.
+      */
+-    CompassData(const quint64& timestamp, int degrees, int level) :
++    CompassData(const quint64& timestamp, qreal degrees, int level) :
+         TimedData(timestamp), degrees_(degrees), rawDegrees_(degrees), correctedDegrees_(0), level_(level) {}
+ 
+     /**
+@@ -135,12 +135,12 @@ public:
+      * @param correctedDegrees Declination corrected angle to north.
+      * @param rawDegrees Not declination corrected angle to north.
+      */
+-    CompassData(const quint64& timestamp, int degrees, int level, int correctedDegrees, int rawDegrees) :
++    CompassData(const quint64& timestamp, qreal degrees, int level, qreal correctedDegrees, qreal rawDegrees) :
+         TimedData(timestamp), degrees_(degrees), rawDegrees_(rawDegrees), correctedDegrees_(correctedDegrees), level_(level) {}
+ 
+-    int degrees_; /**< Angle to north which may be declination corrected or not. This is the value apps should use */
+-    int rawDegrees_; /**< Angle to north without declination correction */
+-    int correctedDegrees_; /**< Declination corrected angle to north */
++    qreal degrees_; /**< Angle to north which may be declination corrected or not. This is the value apps should use */
++    qreal rawDegrees_; /**< Angle to north without declination correction */
++    qreal correctedDegrees_; /**< Declination corrected angle to north */
+     int level_;   /**< Magnetometer calibration level. Higher value means better calibration. */
+ };
+ 
+diff --git a/filters/declinationfilter/declinationfilter.cpp b/filters/declinationfilter/declinationfilter.cpp
+index 0d7419b..e6dbfd6 100644
+--- a/filters/declinationfilter/declinationfilter.cpp
++++ b/filters/declinationfilter/declinationfilter.cpp
+@@ -25,6 +25,7 @@
+  */
+ 
+ #include <QSettings>
++#include <cmath>
+ #include <QSettings>
+ 
+ #include "declinationfilter.h"
+@@ -56,7 +57,7 @@ void DeclinationFilter::correct(unsigned, const CompassData* data)
+     newOrientation.correctedDegrees_ = newOrientation.degrees_;
+     if (m_declinationCorrection.loadAcquire() != 0) {
+         newOrientation.correctedDegrees_ += m_declinationCorrection.loadAcquire();
+-        newOrientation.correctedDegrees_ %= 360;
++        newOrientation.correctedDegrees_ = fmod(newOrientation.correctedDegrees_, 360.0);
+ //        sensordLogT() << "DeclinationFilter corrected degree " << newOrientation.degrees_ << " => " << newOrientation.correctedDegrees_ << ". Level: " << newOrientation.level_;
+     }
+     m_orientation = newOrientation;
+-- 
+2.34.1

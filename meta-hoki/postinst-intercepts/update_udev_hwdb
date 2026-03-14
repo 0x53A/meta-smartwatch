@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# SPDX-License-Identifier: MIT
+#
+
+# Skip if no packages registered this intercept
+grep -q "^##""PKGS:" "$0" || exit 0
+
+set -e
+
+case "${PREFERRED_PROVIDER_udev}" in
+	systemd)
+		UDEV_EXTRA_ARGS="--usr"
+		UDEVLIBDIR="${rootlibexecdir}"
+		UDEVADM="${base_bindir}/udevadm"
+		;;
+
+	*)
+		UDEV_EXTRA_ARGS=""
+		UDEVLIBDIR="${sysconfdir}"
+		UDEVADM="${bindir}/udevadm"
+		;;
+esac
+
+[ -x "$D${UDEVADM}" ] || exit 0
+
+rm -f $D${UDEVLIBDIR}/udev/hwdb.bin
+PSEUDO_UNLOAD=1 ${binprefix}qemuwrapper -L $D $D${UDEVADM} hwdb --update --root $D ${UDEV_EXTRA_ARGS} ||
+	PSEUDO_UNLOAD=1 qemuwrapper -L $D $D${UDEVADM} hwdb --update --root $D ${UDEV_EXTRA_ARGS}
+chown root:root $D${UDEVLIBDIR}/udev/hwdb.bin

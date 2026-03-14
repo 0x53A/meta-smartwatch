@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Thu, 13 Mar 2026 00:00:00 +0100
+Subject: [PATCH] rtc: Enable PMIC RTC write support
+
+The Qualcomm PMIC RTC (qcom,qpnp-rtc on PM660) is set to read-only by
+default in the device tree (qcom,qpnp-rtc-write = <0>). This causes the
+kernel driver to register with qpnp_rtc_ro_ops which has no set_time
+callback, making hwclock -w fail with EINVAL.
+
+The hardware fully supports RTC writes — the driver has the code path
+(qpnp_rtc_set_time writes epoch seconds to SPMI registers 0x6040-0x6043).
+Setting qpnp-rtc-write to 1 makes the driver use qpnp_rtc_rw_ops instead,
+enabling time persistence across reboots.
+
+Upstream-Status: Inappropriate [device-specific configuration]
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ arch/arm64/boot/dts/qcom/pm660.dtsi | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/pm660.dtsi b/arch/arm64/boot/dts/qcom/pm660.dtsi
+index 1234567..abcdefg 100644
+--- a/arch/arm64/boot/dts/qcom/pm660.dtsi
++++ b/arch/arm64/boot/dts/qcom/pm660.dtsi
+@@ -99,7 +99,7 @@
+ 			compatible = "qcom,qpnp-rtc";
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+-			qcom,qpnp-rtc-write = <0>;
++			qcom,qpnp-rtc-write = <1>;
+ 			qcom,qpnp-rtc-alarm-pwrup = <0>;
+
+ 			qcom,pm660_rtc_rw@6000 {

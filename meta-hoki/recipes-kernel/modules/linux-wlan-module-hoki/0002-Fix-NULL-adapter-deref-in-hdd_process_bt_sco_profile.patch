@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Fri, 14 Mar 2026 12:00:00 +0100
+Subject: [PATCH] Fix NULL adapter deref in hdd_process_bt_sco_profile
+
+hdd_process_bt_sco_profile() uses adapter->sessionId in the
+sme_sw_pta_req() call before adapter is assigned via
+hdd_get_adapter(). When called during hdd_wlan_startup() with
+BT active, this dereferences an uninitialized pointer and
+causes a kernel oops.
+
+Move the hdd_get_adapter() call before the first use of adapter.
+If no station adapter exists (e.g. during init), return 0 since
+there is no WiFi session to coordinate with BT yet.
+
+This allows loading wlan.ko while Bluetooth is running, enabling
+WiFi+BT co-existence on devices with shared WCNSS/Pronto radio.
+
+Upstream-Status: Inappropriate [bug in vendor fork, not upstream]
+
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ CORE/HDD/src/wlan_hdd_main.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/CORE/HDD/src/wlan_hdd_main.c b/CORE/HDD/src/wlan_hdd_main.c
+--- a/CORE/HDD/src/wlan_hdd_main.c
++++ b/CORE/HDD/src/wlan_hdd_main.c
+@@ -3972,6 +3972,13 @@
+ 		return -EINVAL;
+ 	}
+
++	adapter = hdd_get_adapter(hdd_ctx, WLAN_HDD_INFRA_STATION);
++	if (!adapter) {
++		hddLog(VOS_TRACE_LEVEL_WARN,
++		       "%s: No station adapter, skipping BT SCO profile update", __func__);
++		return 0;
++	}
++
+ 	INIT_COMPLETION(hdd_ctx->sw_pta_comp);
+
+ 	hal_status = sme_sw_pta_req(hdd_ctx->hHal, hdd_sw_pta_resp_callback,
+@@ -4011,13 +4018,6 @@
+ 		return 0;
+ 	}
+
+-	adapter = hdd_get_adapter(hdd_ctx, WLAN_HDD_INFRA_STATION);
+-	if (!adapter) {
+-		hddLog(VOS_TRACE_LEVEL_ERROR,
+-		       "%s: No station adapter to enable bt sco", __func__);
+-		return -EINVAL;
+-	}
+-
+ 	hdd_sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
+ 	if (!hdd_sta_ctx) {
+ 		hddLog(VOS_TRACE_LEVEL_ERROR,

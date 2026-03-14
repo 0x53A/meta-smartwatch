@@ -1,0 +1,20 @@
+[Unit]
+Description=Load WCNSS firmware and wlan kernel module
+After=local-fs.target android-init.service
+Before=connman.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=90
+# Trigger WCNSS firmware load (write triggers firmware request in the kernel)
+ExecStart=/bin/sh -c 'echo 1 > /dev/wcnss_wlan 2>/dev/null || true'
+# Wait for WCNSS subsystem to come online (up to 30s)
+ExecStart=/bin/sh -c 'for i in $(seq 30); do for s in /sys/bus/msm_subsys/devices/subsys*; do [ "$(cat $s/name)" = wcnss ] && [ "$(cat $s/state)" = ONLINE ] && exit 0; done; sleep 1; done; echo "WCNSS did not come online"; exit 1'
+# Load the wlan module
+ExecStart=/sbin/modprobe wlan
+# Unblock WiFi radio
+ExecStart=/sbin/rfkill unblock wlan
+
+[Install]
+WantedBy=basic.target

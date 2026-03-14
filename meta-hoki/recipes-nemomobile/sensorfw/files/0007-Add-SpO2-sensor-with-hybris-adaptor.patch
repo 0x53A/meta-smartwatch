@@ -1,0 +1,1030 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Sat, 8 Mar 2026 12:00:00 +0100
+Subject: [PATCH] Add SpO2 (blood oxygen) sensor with hybris adaptor
+
+Wire the LifeQ SpO2 vendor sensor (type 65561) through sensorfw.
+The SpO2 algorithm runs on the SLPI (Hexagon DSP) via LifeQ's library;
+this adaptor just reads the processed percentage from the HAL.
+
+Includes verbose debug logging in processSample to discover the
+vendor-specific sensors_event_t data layout.
+
+Upstream-Status: Inappropriate
+
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ adaptors/adaptors.pro                              |   3 +-
+ adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp   | 117 ++++++++++++++++++++
+ adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h     |  62 ++++++++++
+ adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro   |  13 +++
+ adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp | 31 ++++++
+ adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h   | 34 ++++++
+ config/20-sensors-default.conf                     |   1 +
+ config/sensord-hybris.conf                         |   1 +
+ datatypes/datatypes.pro                            |   7 +-
+ datatypes/spo2.cpp                                 |  34 ++++++
+ datatypes/spo2.h                                   |  84 ++++++++++++++++
+ datatypes/spo2data.h                               |  48 +++++++++
+ datatypes/utils.cpp                                |   3 +
+ sensors/sensors.pro                                |   3 +-
+ sensors/spo2sensor/spo2plugin.cpp                  |  39 +++++++
+ sensors/spo2sensor/spo2plugin.h                    |  36 ++++++
+ sensors/spo2sensor/spo2sensor.cpp                  | 115 ++++++++++++++++++
+ sensors/spo2sensor/spo2sensor.h                    |  79 ++++++++++++++
+ sensors/spo2sensor/spo2sensor.pro                  |  14 ++
+ sensors/spo2sensor/spo2sensor_a.cpp                |  31 ++++++
+ sensors/spo2sensor/spo2sensor_a.h                  |  45 ++++++++
+ 21 files changed, 798 insertions(+), 2 deletions(-)
+ create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp
+ create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h
+ create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro
+ create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp
+ create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h
+ create mode 100644 datatypes/spo2.cpp
+ create mode 100644 datatypes/spo2.h
+ create mode 100644 datatypes/spo2data.h
+ create mode 100644 sensors/spo2sensor/spo2plugin.cpp
+ create mode 100644 sensors/spo2sensor/spo2plugin.h
+ create mode 100644 sensors/spo2sensor/spo2sensor.cpp
+ create mode 100644 sensors/spo2sensor/spo2sensor.h
+ create mode 100644 sensors/spo2sensor/spo2sensor.pro
+ create mode 100644 sensors/spo2sensor/spo2sensor_a.cpp
+ create mode 100644 sensors/spo2sensor/spo2sensor_a.h
+
+diff --git a/adaptors/adaptors.pro b/adaptors/adaptors.pro
+index d8d5fbe..311e76e 100644
+--- a/adaptors/adaptors.pro
++++ b/adaptors/adaptors.pro
+@@ -13,7 +13,8 @@ HYBRIS_SUBDIRS = hybrisaccelerometer \
+                  hybrisgeorotationadaptor \
+                  hybrisstepcounteradaptor \
+                  hybrishrmadaptor \
+-                 hybriswristgestureadaptor
++                 hybriswristgestureadaptor \
++                 hybrisspo2adaptor
+ 
+ # split like this as Sailfish only installs hybris plugins
+ contains(CONFIG,hybris) {
+diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp
+@@ -0,0 +1,117 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisspo2adaptor.h"
++#include "logging.h"
++#include "datatypes/utils.h"
++#include "config.h"
++
++// LifeQ SpO2 vendor sensor type: SENSOR_TYPE_DEVICE_PRIVATE_BASE + 25
++#define SENSOR_TYPE_SPO2 65561
++
++HybrisSpo2Adaptor::HybrisSpo2Adaptor(const QString& id) :
++    HybrisAdaptor(id, SENSOR_TYPE_SPO2)
++{
++    buffer = new DeviceAdaptorRingBuffer<Spo2Data>(1);
++    setAdaptedSensor("spo2", "Blood oxygen saturation", buffer);
++    setDescription("Hybris SpO2 sensor (LifeQ)");
++    // SpO2 measurements are slow (30+ seconds), use 1s polling interval
++    unsigned int interval_us = 1000 * 1000;
++    setInterval(0, interval_us);
++}
++
++HybrisSpo2Adaptor::~HybrisSpo2Adaptor()
++{
++    delete buffer;
++}
++
++bool HybrisSpo2Adaptor::startSensor()
++{
++    if (!(HybrisAdaptor::startSensor()))
++        return false;
++    sensordLogD() << "HybrisSpo2Adaptor started";
++    return true;
++}
++
++void HybrisSpo2Adaptor::sendInitialData()
++{
++    sensordLogW() << "No initial data for SpO2 sensor";
++}
++
++void HybrisSpo2Adaptor::stopSensor()
++{
++    HybrisAdaptor::stopSensor();
++    sensordLogD() << "HybrisSpo2Adaptor stopped";
++}
++
++void HybrisSpo2Adaptor::processSample(const sensors_event_t& data)
++{
++    // DEBUG: Dump all float data fields to discover the vendor event format.
++    // The LifeQ SpO2 vendor sensor (type 65561) uses the generic data[16] union.
++    // Once we know the layout, we can remove this debug logging.
++    sensordLogW() << "SPO2 RAW EVENT: type=" << data.type
++                  << " sensor=" << data.sensor
++                  << " timestamp=" << data.timestamp;
++    sensordLogW() << "  data[0]=" << data.u.data[0]
++                  << " data[1]=" << data.u.data[1]
++                  << " data[2]=" << data.u.data[2]
++                  << " data[3]=" << data.u.data[3];
++    sensordLogW() << "  data[4]=" << data.u.data[4]
++                  << " data[5]=" << data.u.data[5]
++                  << " data[6]=" << data.u.data[6]
++                  << " data[7]=" << data.u.data[7];
++    sensordLogW() << "  data[8]=" << data.u.data[8]
++                  << " data[9]=" << data.u.data[9]
++                  << " data[10]=" << data.u.data[10]
++                  << " data[11]=" << data.u.data[11];
++    sensordLogW() << "  data[12]=" << data.u.data[12]
++                  << " data[13]=" << data.u.data[13]
++                  << " data[14]=" << data.u.data[14]
++                  << " data[15]=" << data.u.data[15];
++
++    Spo2Data *d = buffer->nextSlot();
++    d->timestamp_ = quint64(data.timestamp * .001);
++
++    // Preliminary field mapping -- will be refined after observing real data.
++    // Assumption: data[0] = SpO2 percentage, data[1] = confidence or status.
++    d->percentage_ = (int)data.u.data[0];
++    d->confidence_ = (int)data.u.data[1];
++
++    // Map status from generic accuracy values
++    int8_t raw_status = (int8_t)data.u.data[2];
++    switch(raw_status) {
++    case 0:
++        d->status_ = Spo2Unreliable;
++        break;
++    case 1:
++        d->status_ = Spo2AccuracyLow;
++        break;
++    case 2:
++        d->status_ = Spo2AccuracyMedium;
++        break;
++    case 3:
++        d->status_ = Spo2AccuracyHigh;
++        break;
++    default:
++        d->status_ = Spo2NoContact;
++    }
++
++    buffer->commit();
++    buffer->wakeUpReaders();
++}
+diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h
+new file mode 100644
+index 0000000..0000002
+--- /dev/null
++++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h
+@@ -0,0 +1,62 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISSPO2ADAPTOR_H
++#define HYBRISSPO2ADAPTOR_H
++#include "hybrisadaptor.h"
++
++#include <QString>
++#include <QStringList>
++#include <linux/input.h>
++#include "deviceadaptorringbuffer.h"
++#include "datatypes/spo2data.h"
++#include <QTime>
++
++/**
++ * @brief Adaptor for hybris SpO2 sensor.
++ *
++ * Adaptor for blood oxygen saturation sensor (LifeQ SpO2).
++ * Vendor sensor type 65561 (SENSOR_TYPE_DEVICE_PRIVATE_BASE + 25).
++ *
++ * Returns SpO2 percentage and confidence level.
++ */
++class HybrisSpo2Adaptor : public HybrisAdaptor
++{
++    Q_OBJECT
++
++public:
++    static DeviceAdaptor* factoryMethod(const QString& id) {
++        return new HybrisSpo2Adaptor(id);
++    }
++    HybrisSpo2Adaptor(const QString& id);
++    ~HybrisSpo2Adaptor();
++
++    bool startSensor();
++    void stopSensor();
++
++    void sendInitialData();
++
++protected:
++    void processSample(const sensors_event_t& data);
++
++private:
++    DeviceAdaptorRingBuffer<Spo2Data>* buffer;
++
++};
++#endif
+diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro
+new file mode 100644
+index 0000000..0000003
+--- /dev/null
++++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro
+@@ -0,0 +1,13 @@
++TARGET       = hybrisspo2adaptor
++
++HEADERS += hybrisspo2adaptor.h \
++           hybrisspo2adaptorplugin.h
++
++SOURCES += hybrisspo2adaptor.cpp \
++           hybrisspo2adaptorplugin.cpp
++LIBS+= -L../../core -lhybrissensorfw-qt5
++
++include( ../adaptor-config.pri )
++config_hybris {
++    PKGCONFIG += android-headers
++}
+diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp
+new file mode 100644
+index 0000000..0000004
+--- /dev/null
++++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp
+@@ -0,0 +1,31 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "hybrisspo2adaptorplugin.h"
++#include "hybrisspo2adaptor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void HybrisSpo2AdaptorPlugin::Register(class Loader&)
++{
++    sensordLogD() << "registering hybrisspo2adaptor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerDeviceAdaptor<HybrisSpo2Adaptor>("spo2adaptor");
++}
++
+diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h
+new file mode 100644
+index 0000000..0000005
+--- /dev/null
++++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h
+@@ -0,0 +1,34 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef HYBRISSPO2ADAPTORPLUGIN_H
++#define HYBRISSPO2ADAPTORPLUGIN_H
++
++#include "plugin.h"
++
++class HybrisSpo2AdaptorPlugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++
++private:
++    void Register(class Loader& l);
++};
++
++#endif
+diff --git a/config/20-sensors-default.conf b/config/20-sensors-default.conf
+index 4439764..694d5cb 100644
+--- a/config/20-sensors-default.conf
++++ b/config/20-sensors-default.conf
+@@ -44,6 +44,7 @@ rotationsensor=True
+ stepcountersensor=True
+ hrmsensor=True
+ wristgesturesensor=True
++spo2sensor=True
+ 
+ ; To avoid revisiting config files for all old ports in the future, the
+ ; defaults for added sensors should be set "False" by default here, and
+diff --git a/config/sensord-hybris.conf b/config/sensord-hybris.conf
+index c596172..271d3ba 100644
+--- a/config/sensord-hybris.conf
++++ b/config/sensord-hybris.conf
+@@ -9,6 +9,7 @@ stepcounteradaptor = hybrisstepcounteradaptor
+ pressureadaptor = hybrispressureadaptor
+ hrmadaptor = hybrishrmadaptor
+ wristgestureadaptor = hybriswristgestureadaptor
++spo2adaptor = hybrisspo2adaptor
+ 
+ [magnetometer]
+ scale_coefficient = 1
+diff --git a/datatypes/datatypes.pro b/datatypes/datatypes.pro
+index 23d7b89..21ed4c9 100644
+--- a/datatypes/datatypes.pro
++++ b/datatypes/datatypes.pro
+@@ -27,7 +27,9 @@ HEADERS += xyz.h \
+     lid.h \
+     liddata.h \
+     heartratedata.h \
+-    heartrate.h
++    heartrate.h \
++    spo2data.h \
++    spo2.h
+ 
+ SOURCES += xyz.cpp \
+     orientation.cpp \
+@@ -36,7 +38,8 @@ SOURCES += xyz.cpp \
+     utils.cpp \
+     tap.cpp \
+     lid.cpp \
+-    heartrate.cpp
++    heartrate.cpp \
++    spo2.cpp
+ 
+ include(../common-install.pri)
+ publicheaders.path  = $${publicheaders.path}/datatypes
+diff --git a/datatypes/spo2.cpp b/datatypes/spo2.cpp
+new file mode 100644
+index 0000000..0000006
+--- /dev/null
++++ b/datatypes/spo2.cpp
+@@ -0,0 +1,34 @@
++/**
++   @file spo2.cpp
++   @brief QObject based datatype for Spo2Data
++
++   <p>
++   Copyright (C) 2026 Lukas Rieger
++
++   This file is part of Sensord.
++
++   Sensord is free software; you can redistribute it and/or modify
++   it under the terms of the GNU Lesser General Public License
++   version 2.1 as published by the Free Software Foundation.
++
++   Sensord is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with Sensord.  If not, see <http://www.gnu.org/licenses/>.
++   </p>
++ */
++
++#include "spo2.h"
++
++Spo2::Spo2(const Spo2Data& spo2Data)
++    : QObject(), data_(spo2Data.timestamp_, spo2Data.status_, spo2Data.percentage_, spo2Data.confidence_)
++{
++}
++
++Spo2::Spo2(const Spo2& spo2)
++    : QObject(), data_(spo2.spo2Data().timestamp_, spo2.spo2Data().status_, spo2.spo2Data().percentage_, spo2.spo2Data().confidence_)
++{
++}
+diff --git a/datatypes/spo2.h b/datatypes/spo2.h
+new file mode 100644
+index 0000000..0000007
+--- /dev/null
++++ b/datatypes/spo2.h
+@@ -0,0 +1,90 @@
++/**
++   @file spo2.h
++   @brief QObject based datatype for Spo2Data
++
++   <p>
++   Copyright (C) 2026 Lukas Rieger
++
++   This file is part of Sensord.
++
++   Sensord is free software; you can redistribute it and/or modify
++   it under the terms of the GNU Lesser General Public License
++   version 2.1 as published by the Free Software Foundation.
++
++   Sensord is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with Sensord.  If not, see <http://www.gnu.org/licenses/>.
++   </p>
++ */
++
++#ifndef SPO2_H
++#define SPO2_H
++
++#include <QDBusArgument>
++#include <datatypes/spo2data.h>
++
++/**
++ * QObject facade for #Spo2Data.
++ */
++class Spo2 : public QObject
++{
++    Q_OBJECT
++
++    Q_PROPERTY(Spo2Status spo2Status READ status)
++    Q_PROPERTY(int percentage READ percentage)
++    Q_PROPERTY(int confidence READ confidence)
++
++public:
++    Spo2() {}
++
++    Spo2(const Spo2Data& spo2Data);
++
++    Spo2(const Spo2& spo2);
++
++    const Spo2Data& spo2Data() const { return data_; }
++
++    Spo2Status status() const { return data_.status_; }
++
++    int percentage() const { return data_.percentage_; }
++
++    int confidence() const { return data_.confidence_; }
++
++    Spo2& operator=(const Spo2& origin)
++    {
++        data_ = origin.spo2Data();
++        return *this;
++    }
++
++private:
++    Spo2Data data_;
++
++    friend const QDBusArgument &operator>>(const QDBusArgument &argument, Spo2& spo2);
++};
++
++Q_DECLARE_METATYPE(Spo2)
++
++inline QDBusArgument &operator<<(QDBusArgument &argument, const Spo2 &spo2)
++{
++    argument.beginStructure();
++    argument << spo2.spo2Data().status_ << spo2.spo2Data().percentage_ << spo2.spo2Data().confidence_;
++    argument.endStructure();
++    return argument;
++}
++
++inline const QDBusArgument &operator>>(const QDBusArgument &argument, Spo2 &spo2)
++{
++    int status, percentage, confidence;
++    argument.beginStructure();
++    argument >> status >> percentage >> confidence;
++    argument.endStructure();
++    spo2.data_.status_ = (Spo2Status)status;
++    spo2.data_.percentage_ = percentage;
++    spo2.data_.confidence_ = confidence;
++    return argument;
++}
++
++#endif // SPO2_H
+diff --git a/datatypes/spo2data.h b/datatypes/spo2data.h
+new file mode 100644
+index 0000000..0000008
+--- /dev/null
++++ b/datatypes/spo2data.h
+@@ -0,0 +1,48 @@
++/**
++   @file spo2data.h
++   @brief Datatype for SpO2 (blood oxygen saturation) sensor
++
++   <p>
++   Copyright (C) 2026 Lukas Rieger
++
++   This file is part of Sensord.
++
++   Sensord is free software; you can redistribute it and/or modify
++   it under the terms of the GNU Lesser General Public License
++   version 2.1 as published by the Free Software Foundation.
++
++   Sensord is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++   Lesser General Public License for more details.
++
++   You should have received a copy of the GNU Lesser General Public
++   License along with Sensord.  If not, see <http://www.gnu.org/licenses/>.
++   </p>
++ */
++
++#ifndef SPO2DATA_H
++#define SPO2DATA_H
++
++#include "datatypes/genericdata.h"
++
++enum Spo2Status {
++    Spo2NoContact,
++    Spo2Unreliable,
++    Spo2AccuracyLow,
++    Spo2AccuracyMedium,
++    Spo2AccuracyHigh
++};
++
++class Spo2Data : public TimedData {
++public:
++    Spo2Data() : TimedData(0), status_(Spo2NoContact), percentage_(0), confidence_(0) {}
++    Spo2Data(const quint64& timestamp, Spo2Status status, int percentage, int confidence)
++        : TimedData(timestamp), status_(status), percentage_(percentage), confidence_(confidence) {}
++
++    Spo2Status status_;
++    int percentage_;  // SpO2 percentage (0-100)
++    int confidence_;  // Confidence percentage (0-100)
++};
++
++#endif // SPO2DATA_H
+diff --git a/datatypes/utils.cpp b/datatypes/utils.cpp
+index 6a64346..31a70a9 100644
+--- a/datatypes/utils.cpp
++++ b/datatypes/utils.cpp
+@@ -34,6 +34,7 @@
+ #include "unsigned.h"
+ #include "timedunsigned.h"
+ #include "compass.h"
++#include "spo2.h"
+ #include "orientation.h"
+ #include "datarange.h"
+ #include "tap.h"
+@@ -53,6 +54,7 @@ void __attribute__ ((constructor)) datatypes_init(void)
+     qDBusRegisterMetaType<DataRangeList>();
+     qDBusRegisterMetaType<IntegerRange>();
+     qDBusRegisterMetaType<IntegerRangeList>();
++    qDBusRegisterMetaType<Spo2>();
+     qRegisterMetaType<TimedUnsigned>();
+     qRegisterMetaType<PoseData>();
+     qRegisterMetaType<Proximity>();
+diff --git a/sensors/sensors.pro b/sensors/sensors.pro
+index 52197f5..e2c364c 100644
+--- a/sensors/sensors.pro
++++ b/sensors/sensors.pro
+@@ -18,6 +18,7 @@ SUBDIRS  = accelerometersensor \
+            temperaturesensor \
+            stepcountersensor \
+            hrmsensor \
+-           wristgesturesensor
++           wristgesturesensor \
++           spo2sensor
+ 
+ contextprovider:SUBDIRS += contextplugin
+diff --git a/sensors/spo2sensor/spo2plugin.cpp b/sensors/spo2sensor/spo2plugin.cpp
+new file mode 100644
+index 0000000..0000009
+--- /dev/null
++++ b/sensors/spo2sensor/spo2plugin.cpp
+@@ -0,0 +1,39 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "spo2plugin.h"
++#include "spo2sensor.h"
++#include "sensormanager.h"
++#include "logging.h"
++
++void Spo2Plugin::Register(class Loader&)
++{
++    sensordLogD() << "registering spo2sensor";
++    SensorManager& sm = SensorManager::instance();
++    sm.registerSensor<Spo2SensorChannel>("spo2sensor");
++}
++
++void Spo2Plugin::Init(class Loader&)
++{
++    SensorManager::instance().requestSensor("spo2sensor");
++}
++
++QStringList Spo2Plugin::Dependencies() {
++    return QString("spo2adaptor").split(":", QString::SkipEmptyParts);
++}
+diff --git a/sensors/spo2sensor/spo2plugin.h b/sensors/spo2sensor/spo2plugin.h
+new file mode 100644
+index 0000000..0000010
+--- /dev/null
++++ b/sensors/spo2sensor/spo2plugin.h
+@@ -0,0 +1,36 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef SPO2PLUGIN_H
++#define SPO2PLUGIN_H
++
++#include "plugin.h"
++
++class Spo2Plugin : public Plugin
++{
++    Q_OBJECT
++    Q_PLUGIN_METADATA(IID "com.nokia.SensorService.Plugin/1.0")
++
++public:
++    void Register(class Loader& l);
++    void Init(class Loader& l);
++    QStringList Dependencies();
++};
++
++#endif // SPO2PLUGIN_H
+diff --git a/sensors/spo2sensor/spo2sensor.cpp b/sensors/spo2sensor/spo2sensor.cpp
+new file mode 100644
+index 0000000..0000011
+--- /dev/null
++++ b/sensors/spo2sensor/spo2sensor.cpp
+@@ -0,0 +1,115 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "spo2sensor.h"
++
++#include "sensormanager.h"
++#include "bin.h"
++#include "bufferreader.h"
++#include "datatypes/spo2data.h"
++#include "logging.h"
++
++Spo2SensorChannel::Spo2SensorChannel(const QString& id) :
++        AbstractSensorChannel(id),
++        DataEmitter<Spo2Data>(1),
++        previousValue_(0, Spo2NoContact, 0, 0)
++{
++    SensorManager& sm = SensorManager::instance();
++
++    spo2Adaptor_ = sm.requestDeviceAdaptor("spo2adaptor");
++    if (!spo2Adaptor_) {
++        setValid(false);
++        return;
++    }
++
++    spo2Reader_ = new BufferReader<Spo2Data>(1);
++
++    outputBuffer_ = new RingBuffer<Spo2Data>(1);
++
++    // Create brains for the chain
++    filterBin_ = new Bin;
++    filterBin_->add(spo2Reader_, "spo2");
++    filterBin_->add(outputBuffer_, "buffer");
++    filterBin_->join("spo2", "source", "buffer", "sink");
++
++    // Join brains
++    connectToSource(spo2Adaptor_, "spo2", spo2Reader_);
++
++    marshallingBin_ = new Bin;
++    marshallingBin_->add(this, "sensorchannel");
++
++    outputBuffer_->join(this);
++
++    setDescription("SpO2 blood oxygen saturation sensor");
++    setRangeSource(spo2Adaptor_);
++    addStandbyOverrideSource(spo2Adaptor_);
++    setIntervalSource(spo2Adaptor_);
++
++    setValid(true);
++}
++
++Spo2SensorChannel::~Spo2SensorChannel()
++{
++    if (isValid()) {
++        SensorManager& sm = SensorManager::instance();
++
++        disconnectFromSource(spo2Adaptor_, "spo2", spo2Reader_);
++
++        sm.releaseDeviceAdaptor("spo2adaptor");
++
++        delete spo2Reader_;
++        delete outputBuffer_;
++        delete marshallingBin_;
++        delete filterBin_;
++    }
++}
++
++bool Spo2SensorChannel::start()
++{
++    sensordLogD() << "Starting Spo2SensorChannel";
++
++    if (AbstractSensorChannel::start()) {
++        marshallingBin_->start();
++        filterBin_->start();
++        spo2Adaptor_->startSensor();
++    }
++    return true;
++}
++
++bool Spo2SensorChannel::stop()
++{
++    sensordLogD() << "Stopping Spo2SensorChannel";
++
++    if (AbstractSensorChannel::stop()) {
++        spo2Adaptor_->stopSensor();
++        filterBin_->stop();
++        marshallingBin_->stop();
++    }
++    return true;
++}
++
++void Spo2SensorChannel::emitData(const Spo2Data& value)
++{
++    if (value.percentage_ != previousValue_.percentage_ ||
++        value.confidence_ != previousValue_.confidence_ ||
++        value.status_ != previousValue_.status_) {
++        previousValue_ = value;
++        writeToClients((const void*)(&value), sizeof(value));
++    }
++}
+diff --git a/sensors/spo2sensor/spo2sensor.h b/sensors/spo2sensor/spo2sensor.h
+new file mode 100644
+index 0000000..0000012
+--- /dev/null
++++ b/sensors/spo2sensor/spo2sensor.h
+@@ -0,0 +1,79 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef SPO2SENSOR_CHANNEL_H
++#define SPO2SENSOR_CHANNEL_H
++
++#include <QObject>
++
++#include "deviceadaptor.h"
++#include "abstractsensor.h"
++#include "spo2sensor_a.h"
++#include "dataemitter.h"
++#include "datatypes/spo2data.h"
++#include "datatypes/spo2.h"
++
++class Bin;
++template <class TYPE> class BufferReader;
++
++/**
++ * @brief SpO2 sensor channel.
++ *
++ * Provides blood oxygen saturation data from the hybris HAL adaptor.
++ */
++class Spo2SensorChannel :
++        public AbstractSensorChannel,
++        public DataEmitter<Spo2Data>
++{
++    Q_OBJECT
++    Q_PROPERTY(Spo2 spo2 READ spo2)
++
++public:
++    static AbstractSensorChannel* factoryMethod(const QString& id)
++    {
++        Spo2SensorChannel* sc = new Spo2SensorChannel(id);
++        new Spo2SensorChannelAdaptor(sc);
++        return sc;
++    }
++
++    Spo2 spo2() const { return Spo2(previousValue_); }
++
++public Q_SLOTS:
++    bool start();
++    bool stop();
++
++Q_SIGNALS:
++    void spo2Changed(const Spo2& value);
++
++protected:
++    Spo2SensorChannel(const QString& id);
++    virtual ~Spo2SensorChannel();
++
++private:
++    Spo2Data previousValue_;
++    Bin*                          filterBin_;
++    Bin*                          marshallingBin_;
++    DeviceAdaptor*                spo2Adaptor_;
++    BufferReader<Spo2Data>*       spo2Reader_;
++    RingBuffer<Spo2Data>*         outputBuffer_;
++
++    void emitData(const Spo2Data& value);
++};
++
++#endif // SPO2SENSOR_CHANNEL_H
+diff --git a/sensors/spo2sensor/spo2sensor.pro b/sensors/spo2sensor/spo2sensor.pro
+new file mode 100644
+index 0000000..0000013
+--- /dev/null
++++ b/sensors/spo2sensor/spo2sensor.pro
+@@ -0,0 +1,14 @@
++TEMPLATE     = lib
++CONFIG      += plugin
++
++TARGET       = spo2sensor
++
++HEADERS += spo2sensor.h \
++           spo2sensor_a.h \
++           spo2plugin.h
++
++SOURCES += spo2sensor.cpp \
++           spo2sensor_a.cpp \
++           spo2plugin.cpp
++
++include( ../sensor-config.pri )
+diff --git a/sensors/spo2sensor/spo2sensor_a.cpp b/sensors/spo2sensor/spo2sensor_a.cpp
+new file mode 100644
+index 0000000..0000014
+--- /dev/null
++++ b/sensors/spo2sensor/spo2sensor_a.cpp
+@@ -0,0 +1,31 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#include "spo2sensor_a.h"
++#include "spo2sensor.h"
++
++Spo2SensorChannelAdaptor::Spo2SensorChannelAdaptor(QObject *parent) :
++    AbstractSensorChannelAdaptor(parent)
++{
++}
++
++Spo2 Spo2SensorChannelAdaptor::spo2() const
++{
++    return qobject_cast<const Spo2SensorChannel*>(parent())->spo2();
++}
+diff --git a/sensors/spo2sensor/spo2sensor_a.h b/sensors/spo2sensor/spo2sensor_a.h
+new file mode 100644
+index 0000000..0000015
+--- /dev/null
++++ b/sensors/spo2sensor/spo2sensor_a.h
+@@ -0,0 +1,45 @@
++/****************************************************************************
++**
++** Copyright (C) 2026 Lukas Rieger
++**
++**
++** $QT_BEGIN_LICENSE:LGPL$
++**
++** GNU Lesser General Public License Usage
++** Alternatively, this file may be used under the terms of the GNU Lesser
++** General Public License version 2.1 as published by the Free Software
++** Foundation and appearing in the file LICENSE.LGPL included in the
++** packaging of this file.  Please review the following information to
++** ensure the GNU Lesser General Public License version 2.1 requirements
++** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
++**
++** $QT_END_LICENSE$
++**
++****************************************************************************/
++
++#ifndef SPO2SENSOR_A_H
++#define SPO2SENSOR_A_H
++
++#include <QObject>
++#include <QDBusAbstractAdaptor>
++
++#include "datatypes/spo2.h"
++#include "abstractsensor_a.h"
++
++class Spo2SensorChannelAdaptor : public AbstractSensorChannelAdaptor
++{
++    Q_OBJECT
++    Q_CLASSINFO("D-Bus Interface", "local.Spo2Sensor")
++    Q_PROPERTY(Spo2 spo2 READ spo2)
++
++public:
++    Spo2SensorChannelAdaptor(QObject *parent);
++
++public Q_SLOTS:
++    Spo2 spo2() const;
++
++Q_SIGNALS:
++    void spo2Changed(const Spo2& value);
++};
++
++#endif // SPO2SENSOR_A_H
+--
+2.34.1

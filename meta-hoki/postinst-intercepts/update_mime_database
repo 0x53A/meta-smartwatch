@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# SPDX-License-Identifier: MIT
+#
+# Post-install intercept for mime.bbclass
+
+# Skip if no packages registered this intercept
+grep -q "^##""PKGS:" "$0" || exit 0
+
+if [ ! -d "$D${mimedir}" ]; then
+    exit 0
+fi
+
+echo "Updating MIME database... this may take a while."
+update-mime-database $D${mimedir}

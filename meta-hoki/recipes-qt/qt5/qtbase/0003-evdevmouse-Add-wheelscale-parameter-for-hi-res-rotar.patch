@@ -1,0 +1,117 @@
+From: AsteroidOS <noreply@asteroidos.org>
+Subject: [PATCH] evdevmouse: Add wheelscale parameter for hi-res rotary encoders
+
+Hardware rotary encoders (like watch crowns) generate many REL_WHEEL
+ticks per rotation. The evdevmouse handler multiplies each tick by 120
+(the standard angleDelta for one mouse wheel notch), which results in
+wildly oversensitive scrolling on such devices.
+
+Add a "wheelscale" parameter to the evdevmouse plugin specification
+string. The value is an integer representing the number of encoder ticks
+that correspond to one logical scroll step (angleDelta 120). For example,
+"wheelscale=20" means 20 hardware ticks produce the same scroll as one
+mouse wheel notch.
+
+Default is 1, preserving existing behavior for standard mice.
+
+Usage:
+  -plugin evdevmouse:/dev/input/event1:wheelscale=20
+
+Upstream-Status: Pending
+
+---
+ .../input/evdevmouse/qevdevmousehandler.cpp   | 29 +++++++++++++++------
+ .../input/evdevmouse/qevdevmousehandler_p.h   |  6 ++++-
+ 2 files changed, 27 insertions(+), 8 deletions(-)
+
+--- a/src/platformsupport/input/evdevmouse/qevdevmousehandler.cpp
++++ b/src/platformsupport/input/evdevmouse/qevdevmousehandler.cpp
+@@ -74,6 +74,7 @@
+     int jitterLimit = 0;
+     int grab = 0;
+     bool abs = false;
++    int wheelScale = 1;
+
+     const auto args = specification.splitRef(QLatin1Char(':'));
+     for (const QStringRef &arg : args) {
+@@ -85,21 +86,24 @@
+             grab = arg.mid(5).toInt();
+         else if (arg == QLatin1String("abs"))
+             abs = true;
++        else if (arg.startsWith(QLatin1String("wheelscale=")))
++            wheelScale = qMax(1, arg.mid(11).toInt());
+     }
+
+     int fd;
+     fd = qt_safe_open(device.toLocal8Bit().constData(), O_RDONLY | O_NDELAY, 0);
+     if (fd >= 0) {
+         ::ioctl(fd, EVIOCGRAB, grab);
+-        return std::unique_ptr<QEvdevMouseHandler>(new QEvdevMouseHandler(device, fd, abs, compression, jitterLimit));
++        return std::unique_ptr<QEvdevMouseHandler>(new QEvdevMouseHandler(device, fd, abs, compression, jitterLimit, wheelScale));
+     } else {
+         qErrnoWarning(errno, "Cannot open mouse input device %s", qPrintable(device));
+         return nullptr;
+     }
+ }
+
+-QEvdevMouseHandler::QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit)
+-    : m_device(device), m_fd(fd), m_abs(abs), m_compression(compression)
++QEvdevMouseHandler::QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit, int wheelScale)
++    : m_device(device), m_fd(fd), m_abs(abs), m_compression(compression),
++      m_wheelScale(wheelScale)
+ {
+     setObjectName(QLatin1String("Evdev Mouse Handler"));
+
+@@ -266,8 +270,13 @@
+                 posChanged = true;
+             } else if (!m_hiResWheel && data->code == REL_WHEEL) {
+                 // data->value: positive == up, negative == down
+-                delta.setY(120 * data->value);
+-                emit handleWheelEvent(delta);
++                m_wheelAccumY += data->value;
++                if (qAbs(m_wheelAccumY) >= m_wheelScale) {
++                    int steps = m_wheelAccumY / m_wheelScale;
++                    m_wheelAccumY -= steps * m_wheelScale;
++                    delta.setY(120 * steps);
++                    emit handleWheelEvent(delta);
++                }
+ #ifdef REL_WHEEL_HI_RES
+             } else if (data->code == REL_WHEEL_HI_RES) {
+                 delta.setY(data->value);
+@@ -275,8 +284,13 @@
+ #endif
+             } else if (!m_hiResHWheel && data->code == REL_HWHEEL) {
+                 // data->value: positive == right, negative == left
+-                delta.setX(-120 * data->value);
+-                emit handleWheelEvent(delta);
++                m_wheelAccumX += data->value;
++                if (qAbs(m_wheelAccumX) >= m_wheelScale) {
++                    int steps = m_wheelAccumX / m_wheelScale;
++                    m_wheelAccumX -= steps * m_wheelScale;
++                    delta.setX(-120 * steps);
++                    emit handleWheelEvent(delta);
++                }
+ #ifdef REL_HWHEEL_HI_RES
+             } else if (data->code == REL_HWHEEL_HI_RES) {
+                 delta.setX(-data->value);
+--- a/src/platformsupport/input/evdevmouse/qevdevmousehandler_p.h
++++ b/src/platformsupport/input/evdevmouse/qevdevmousehandler_p.h
+@@ -77,7 +77,7 @@
+     void handleWheelEvent(QPoint delta);
+
+ private:
+-    QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit);
++    QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit, int wheelScale = 1);
+
+     void sendMouseEvent();
+     bool getHardwareMaximum();
+@@ -101,6 +101,9 @@
+     int m_hardwareHeight;
+     qreal m_hardwareScalerY;
+     qreal m_hardwareScalerX;
++    int m_wheelScale = 1;
++    int m_wheelAccumX = 0;
++    int m_wheelAccumY = 0;
+ };
+
+ QT_END_NAMESPACE

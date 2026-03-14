@@ -1,14 +1,29 @@
 #!/bin/sh
 set -e
 
+# Check if any power supply is providing power
+on_charger() {
+    for supply in /sys/class/power_supply/*/online; do
+        [ -f "$supply" ] && [ "$(cat "$supply")" = "1" ] && return 0
+    done
+    return 1
+}
+
 # Enable low power mode
 echo 0 > /sys/module/lpm_levels/parameters/sleep_disabled
 
 # Set CPU governor to ondemand (ramps up quickly for bursty workloads)
 echo ondemand > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 
-# Disable three cores
-echo 0 > /sys/devices/system/cpu/cpu1/online
-echo 0 > /sys/devices/system/cpu/cpu2/online
-echo 0 > /sys/devices/system/cpu/cpu3/online
+if on_charger; then
+    # On charger: enable all cores
+    echo 1 > /sys/devices/system/cpu/cpu1/online
+    echo 1 > /sys/devices/system/cpu/cpu2/online
+    echo 1 > /sys/devices/system/cpu/cpu3/online
+else
+    # On battery: disable three cores
+    echo 0 > /sys/devices/system/cpu/cpu1/online
+    echo 0 > /sys/devices/system/cpu/cpu2/online
+    echo 0 > /sys/devices/system/cpu/cpu3/online
+fi
 

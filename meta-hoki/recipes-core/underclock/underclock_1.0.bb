@@ -2,6 +2,7 @@ DESCRIPTION = "When boot is done, we can underclock the CPU and GPU to save ener
 PR = "r0"
 SRC_URI = "file://underclock.service \
            file://underclock \
+           file://99-power-cpu.rules \
            file://COPYING"
 LICENSE = "GPL-3.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=84dcc94da3adb52b53ae4fa38fe49e5d"
@@ -17,5 +18,8 @@ do_install() {
     install -d ${D}/etc/systemd/system/default.target.wants/
     cp underclock.service ${D}/etc/systemd/system/
     ln -s ../underclock.service ${D}/etc/systemd/system/default.target.wants/underclock.service
+
+    install -d ${D}/etc/udev/rules.d/
+    install -m 0644 99-power-cpu.rules ${D}/etc/udev/rules.d/
 }
 

@@ -1,0 +1,16 @@
+#!/bin/sh
+#
+# SPDX-License-Identifier: MIT
+#
+
+# Skip if no packages registered this intercept
+grep -q "^##""PKGS:" "$0" || exit 0
+
+set -e
+
+[ -x "$D${libexecdir}/${binprefix}gio-querymodules" ] || exit 0
+
+PSEUDO_UNLOAD=1 ${binprefix}qemuwrapper -L $D $D${libexecdir}/${binprefix}gio-querymodules $D${libdir}/gio/modules/
+
+[ ! -e $D${libdir}/gio/modules/giomodule.cache ] ||
+	chown root:root $D${libdir}/gio/modules/giomodule.cache
