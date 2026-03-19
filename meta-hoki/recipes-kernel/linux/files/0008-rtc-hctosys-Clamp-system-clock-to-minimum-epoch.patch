@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Wed, 19 Mar 2026 00:00:00 +0100
+Subject: [PATCH] rtc: hctosys: Clamp system clock to minimum epoch
+
+The Qualcomm PMIC RTC on the Fossil Gen 6 (PM660) can return garbage
+values (~860K seconds, i.e. January 1970) when the RTC registers have
+never been properly initialized. Booting with the system clock at 1970
+causes systemd to stall and the hardware watchdog to reset the device,
+resulting in a boot crash loop.
+
+Add a compile-time minimum epoch (CONFIG_RTC_HCTOSYS_MIN_YEAR, default
+0 = disabled) so that if the RTC reads a value before that year, the
+system clock is set to the minimum instead. This gives userspace
+(systemd, timesyncd) a reasonable starting point. Once NTP syncs,
+hwclock -w will write the correct time back to the RTC for future boots.
+
+Upstream-Status: Inappropriate [device-specific workaround]
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ drivers/rtc/Kconfig   |  9 +++++++++
+ drivers/rtc/hctosys.c | 12 ++++++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/drivers/rtc/Kconfig b/drivers/rtc/Kconfig
+index acae8d23731f..bc0b007d3fd3 100644
+--- a/drivers/rtc/Kconfig
++++ b/drivers/rtc/Kconfig
+@@ -52,6 +52,15 @@ config RTC_HCTOSYS_DEVICE
+ 	  sleep states. Do not specify an RTC here unless it stays powered
+ 	  during all this system's supported sleep states.
+
++config RTC_HCTOSYS_MIN_YEAR
++	int "Minimum year for RTC hctosys (0 = no minimum)"
++	default 0
++	help
++	  If the RTC reads a date before January 1 of this year, hctosys
++	  will clamp the system clock to that date instead. This prevents
++	  boot failures caused by uninitialized or corrupted RTC values.
++	  Set to 0 to disable the check (default).
++
+ config RTC_SYSTOHC
+ 	bool "Set the RTC time based on NTP synchronization"
+ 	default y
+diff --git a/drivers/rtc/hctosys.c b/drivers/rtc/hctosys.c
+index b9ec4a16db1f..1472f8f1dd46 100644
+--- a/drivers/rtc/hctosys.c
++++ b/drivers/rtc/hctosys.c
+@@ -49,6 +49,18 @@ static int __init rtc_hctosys(void)
+
+ 	tv64.tv_sec = rtc_tm_to_time64(&tm);
+
++#if defined(CONFIG_RTC_HCTOSYS_MIN_YEAR) && CONFIG_RTC_HCTOSYS_MIN_YEAR > 0
++	{
++		time64_t min_epoch = mktime64(CONFIG_RTC_HCTOSYS_MIN_YEAR, 1, 1, 0, 0, 0);
++		if (tv64.tv_sec < min_epoch) {
++			dev_warn(rtc->dev.parent,
++				"hctosys: RTC value %lld is before %d, clamping to %lld\n",
++				(long long)tv64.tv_sec, CONFIG_RTC_HCTOSYS_MIN_YEAR, (long long)min_epoch);
++			tv64.tv_sec = min_epoch;
++		}
++	}
++#endif
++
+ #if BITS_PER_LONG == 32
+ 	if (tv64.tv_sec > INT_MAX) {
+ 		err = -ERANGE;

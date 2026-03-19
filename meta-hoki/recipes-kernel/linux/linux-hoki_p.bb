@@ -25,6 +25,8 @@ SRC_URI = "git://github.com/fossil-engineering/kernel-msm-fossil-cw;branch=fossi
            file://0005-initramfs-Don-t-skip-initramfs.patch \
            file://0006-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch \
            file://0007-rtc-Enable-PMIC-RTC-write-support.patch \
+           file://0008-rtc-hctosys-Clamp-system-clock-to-minimum-epoch.patch \
+           file://0009-rtc-qpnp-Add-debug-prints-to-probe.patch \
            "
 SRCREV = "c0b4c201f2d5a641defe19958a9b4c16f40d866b"
 

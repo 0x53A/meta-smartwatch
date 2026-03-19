@@ -13,6 +13,11 @@ The hardware fully supports RTC writes — the driver has the code path
 Setting qpnp-rtc-write to 1 makes the driver use qpnp_rtc_rw_ops instead,
 enabling time persistence across reboots.
 
+NOTE: This patch is currently a no-op — the hoki DTS is a standalone
+decompiled blob that does not #include pm660.dtsi. The actual fix is in
+patch 0001 (qcom,qpnp-rtc-write = <0x01> in the hoki DTS). Remove this
+patch after verifying RTC writes work on the device.
+
 Upstream-Status: Inappropriate [device-specific configuration]
 Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
 ---

@@ -1,0 +1,12 @@
+[Unit]
+Description=Initialize system clock from build date if RTC is stale
+DefaultDependencies=no
+Before=sysinit.target systemd-journald.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/hoki-clock-init
+
+[Install]
+WantedBy=sysinit.target
