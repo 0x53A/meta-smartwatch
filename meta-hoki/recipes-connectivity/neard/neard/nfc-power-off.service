@@ -1,0 +1,11 @@
+[Unit]
+Description=Power off NFC adapter after neard starts
+After=neard.service
+Requires=neard.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'sleep 2 && dbus-send --system --print-reply --dest=org.neard /org/neard/nfc0 org.freedesktop.DBus.Properties.Set string:org.neard.Adapter string:Powered variant:boolean:false'
+
+[Install]
+WantedBy=multi-user.target

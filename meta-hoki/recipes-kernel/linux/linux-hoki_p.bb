@@ -24,9 +24,10 @@ SRC_URI = "git://github.com/fossil-engineering/kernel-msm-fossil-cw;branch=fossi
            file://0004-usb-hcd-Handle-when-host-mode-isn-t-available.patch \
            file://0005-initramfs-Don-t-skip-initramfs.patch \
            file://0006-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch \
-           file://0007-rtc-Enable-PMIC-RTC-write-support.patch \
-           file://0008-rtc-hctosys-Clamp-system-clock-to-minimum-epoch.patch \
-           file://0009-rtc-qpnp-Add-debug-prints-to-probe.patch \
+           file://0012-spmi-pmic-arb-Log-peripheral-ownership-at-discovery.patch \
+           file://0011-diag-Forward-EFS2-subsystem-commands-to-modem.patch \
+           file://0013-nfc-pn553-Add-reference-clock-management.patch \
+           file://0015-nfc-nxp-nci-Add-PN553-support-with-RF-config-and-VEN.patch \
            "
 SRCREV = "c0b4c201f2d5a641defe19958a9b4c16f40d866b"
 

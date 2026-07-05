@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Fri, 21 Mar 2026 00:00:00 +0100
+Subject: [PATCH] rtc: qpnp: Add SEC_ACCESS unlock before SPMI writes
+
+On Qualcomm PMICs, protected registers require writing 0xA5 to the
+peripheral's SEC_ACCESS register (offset 0xD0) before each write.
+The qpnp-rtc driver was missing these unlocks, causing SPMI writes
+to hang (the PMIC ignores writes to locked registers, so the SPMI
+arbiter waits for an ACK indefinitely).
+
+Add qpnp_sec_access() helper and call it before every protected
+register write in qpnp_rtc_set_time().
+
+Upstream-Status: Pending [bug fix, could be submitted upstream]
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ drivers/rtc/qpnp-rtc.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/drivers/rtc/qpnp-rtc.c b/drivers/rtc/qpnp-rtc.c
+index 579877306d92..c640ad2c456f 100644
+--- a/drivers/rtc/qpnp-rtc.c
++++ b/drivers/rtc/qpnp-rtc.c
+@@ -32,6 +32,8 @@
+ #define REG_OFFSET_RTC_CTRL	0x46
+ #define REG_OFFSET_RTC_READ	0x48
+ #define REG_OFFSET_PERP_SUBTYPE	0x05
++#define REG_OFFSET_SEC_ACCESS	0xD0
++#define SEC_ACCESS_VALUE	0xA5
+ 
+ /* RTC_CTRL register bit fields */
+ #define BIT_RTC_ENABLE		BIT(7)
+@@ -70,6 +72,14 @@ struct qpnp_rtc {
+ 	spinlock_t		alarm_ctrl_lock;
+ };
+ 
++static int qpnp_sec_access(struct qpnp_rtc *rtc_dd, u16 base)
++{
++	u8 sec_val = SEC_ACCESS_VALUE;
++
++	return regmap_bulk_write(rtc_dd->regmap, base + REG_OFFSET_SEC_ACCESS,
++				&sec_val, 1);
++}
++
+ static int qpnp_read_wrapper(struct qpnp_rtc *rtc_dd, u8 *rtc_val,
+ 			u16 base, int count)
+ {
+@@ -121,6 +131,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	if (ctrl_reg & BIT_RTC_ALARM_ENABLE) {
+ 		alarm_enabled = 1;
+ 		ctrl_reg &= ~BIT_RTC_ALARM_ENABLE;
++		qpnp_sec_access(rtc_dd, rtc_dd->alarm_base);
+ 		rc = qpnp_write_wrapper(rtc_dd, &ctrl_reg,
+ 			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+ 		if (rc) {
+@@ -159,6 +170,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	if (rtc_ctrl_reg & BIT_RTC_ENABLE) {
+ 		rtc_disabled = 1;
+ 		rtc_ctrl_reg &= ~BIT_RTC_ENABLE;
++		qpnp_sec_access(rtc_dd, rtc_dd->rtc_base);
+ 		rc = qpnp_write_wrapper(rtc_dd, &rtc_ctrl_reg,
+ 				rtc_dd->rtc_base + REG_OFFSET_RTC_CTRL, 1);
+ 		if (rc) {
+@@ -171,6 +183,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 
+ 	/* Clear WDATA[0] */
+ 	reg = 0x0;
++	qpnp_sec_access(rtc_dd, rtc_dd->rtc_base);
+ 	rc = qpnp_write_wrapper(rtc_dd, &reg,
+ 				rtc_dd->rtc_base + REG_OFFSET_RTC_WRITE, 1);
+ 	if (rc) {
+@@ -179,6 +192,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	}
+ 
+ 	/* Write to WDATA[3], WDATA[2] and WDATA[1] */
++	qpnp_sec_access(rtc_dd, rtc_dd->rtc_base);
+ 	rc = qpnp_write_wrapper(rtc_dd, &value[1],
+ 			rtc_dd->rtc_base + REG_OFFSET_RTC_WRITE + 1, 3);
+ 	if (rc) {
+@@ -187,6 +201,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	}
+ 
+ 	/* Write to WDATA[0] */
++	qpnp_sec_access(rtc_dd, rtc_dd->rtc_base);
+ 	rc = qpnp_write_wrapper(rtc_dd, value,
+ 				rtc_dd->rtc_base + REG_OFFSET_RTC_WRITE, 1);
+ 	if (rc) {
+@@ -197,6 +212,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	/* Enable RTC H/w after writing on RTC register*/
+ 	if (rtc_disabled) {
+ 		rtc_ctrl_reg |= BIT_RTC_ENABLE;
++		qpnp_sec_access(rtc_dd, rtc_dd->rtc_base);
+ 		rc = qpnp_write_wrapper(rtc_dd, &rtc_ctrl_reg,
+ 				rtc_dd->rtc_base + REG_OFFSET_RTC_CTRL, 1);
+ 		if (rc) {
+@@ -209,6 +225,7 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 
+ 	if (alarm_enabled) {
+ 		ctrl_reg |= BIT_RTC_ALARM_ENABLE;
++		qpnp_sec_access(rtc_dd, rtc_dd->alarm_base);
+ 		rc = qpnp_write_wrapper(rtc_dd, &ctrl_reg,
+ 			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+ 		if (rc) {

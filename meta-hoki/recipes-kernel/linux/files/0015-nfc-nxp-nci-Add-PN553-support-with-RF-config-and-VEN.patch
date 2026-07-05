@@ -1,0 +1,316 @@
+Upstream-Status: Pending
+Subject: nfc: nxp-nci: Add PN553 support with RF config, VEN timing, legacy DT, and clock management
+
+Adds support for using the mainline nxp-nci driver with the NXP PN553 NFC
+controller on Qualcomm MSM8909W platforms (Fossil Gen 6 watches):
+- post_setup hook to load vendor RF antenna config from firmware file
+- Proprietary NCI response/notification handlers for NXP vendor opcodes
+- Increase VEN boot delay to 100ms (PN553 requirement)
+- Accept legacy "nxp,pn544" DT compatible and GPIO property names
+- Reference clock (BBCLK2) management to prevent clk_disable_unused
+- Fix NCI DISCOVER_MAP to include T2T/T3T protocols and use poll-only mode
+- NXP proprietary MIFARE Classic protocol support (DISCOVER_MAP + get_rfprotocol)
+- Reformat MIFARE auth commands for NXP proprietary interface
+
+diff --git a/drivers/nfc/nxp-nci/core.c b/drivers/nfc/nxp-nci/core.c
+index 2e4b004a96aa..cf320508e916 100644
+--- a/drivers/nfc/nxp-nci/core.c
++++ b/drivers/nfc/nxp-nci/core.c
+@@ -24,9 +24,11 @@
+ #include <linux/delay.h>
+ #include <linux/gpio.h>
+ #include <linux/module.h>
++#include <linux/firmware.h>
+ #include <linux/nfc.h>
+ #include <linux/platform_data/nxp-nci.h>
+ 
++#include <net/nfc/nci.h>
+ #include <net/nfc/nci_core.h>
+ 
+ #include "nxp-nci.h"
+@@ -101,11 +103,119 @@ static int nxp_nci_send(struct nci_dev *ndev, struct sk_buff *skb)
+ 	return r;
+ }
+ 
++/*
++ * Load NXP vendor RF configuration from firmware file and send each
++ * NCI command to the chip. Called after CORE_INIT, before discovery.
++ *
++ * Firmware file format:
++ *   [2-byte big-endian length][raw NCI command bytes]...
++ *   terminated by [0x0000]
++ */
++/*
++ * Handle NXP proprietary NCI responses. The PN553 responds to standard
++ * CORE_SET_CONFIG with vendor parameters (A0,xx) using proprietary
++ * response opcodes (GID=0xf). Without this handler, the NCI core drops
++ * the response and nci_send_cmd() times out after 5 seconds per command.
++ */
++static int nxp_nci_prop_rsp(struct nci_dev *ndev, struct sk_buff *skb)
++{
++	/* Status byte is first byte of payload */
++	u8 status = skb->data[0];
++
++	nci_req_complete(ndev, status);
++	return 0;
++}
++
++static int nxp_nci_prop_ntf(struct nci_dev *ndev, struct sk_buff *skb)
++{
++	/* Silently consume NXP proprietary notifications */
++	return 0;
++}
++
++/* Register handlers for proprietary opcodes from the NXP PN553.
++ * NXP uses GID=0xf with OID matching the original command's OID. */
++static struct nci_driver_ops nxp_nci_prop_ops[] = {
++	{ .opcode = nci_opcode_pack(NCI_GID_PROPRIETARY, 0x00),
++	  .rsp = nxp_nci_prop_rsp, .ntf = nxp_nci_prop_ntf },
++	{ .opcode = nci_opcode_pack(NCI_GID_PROPRIETARY, 0x02),
++	  .rsp = nxp_nci_prop_rsp, .ntf = nxp_nci_prop_ntf },
++};
++
++/* NXP proprietary NCI protocol/interface IDs for MIFARE Classic */
++#define NXP_NCI_RF_PROTOCOL_MIFARE	0x80
++#define NXP_NCI_RF_INTERFACE_MIFARE	0x80
++
++static __u32 nxp_nci_get_rfprotocol(struct nci_dev *ndev, __u8 rf_protocol)
++{
++	if (rf_protocol == NXP_NCI_RF_PROTOCOL_MIFARE)
++		return NFC_PROTO_MIFARE_MASK;
++	return 0;
++}
++
++static int nxp_nci_post_setup(struct nci_dev *ndev)
++{
++	struct nxp_nci_info *info = nci_get_drvdata(ndev);
++	const struct firmware *fw;
++	const u8 *data;
++	size_t size;
++	int r, count = 0;
++
++	r = request_firmware(&fw, "nxp/nxp-nci-rf-config.bin", info->pdev);
++	if (r < 0) {
++		if (r == -ENOENT)
++			dev_info(info->pdev,
++				 "No RF config (nxp/nxp-nci-rf-config.bin)\n");
++		else
++			dev_warn(info->pdev,
++				 "Failed to load RF config: %d\n", r);
++		return 0;
++	}
++
++	data = fw->data;
++	size = fw->size;
++
++	while (size >= 2) {
++		u16 cmd_len = (data[0] << 8) | data[1];
++		u16 opcode;
++
++		data += 2;
++		size -= 2;
++
++		if (cmd_len == 0)
++			break;
++
++		if (cmd_len < 3 || cmd_len > size) {
++			dev_err(info->pdev,
++				"RF config truncated at cmd %d\n", count);
++			break;
++		}
++
++		opcode = nci_opcode(data);
++
++		r = nci_send_cmd(ndev, opcode, data[2], (void *)(data + 3));
++		if (r < 0)
++			dev_warn(info->pdev,
++				 "RF config cmd %d failed: %d\n", count, r);
++
++		data += cmd_len;
++		size -= cmd_len;
++		count++;
++	}
++
++	dev_info(info->pdev, "Sent %d NXP RF config commands\n", count);
++	release_firmware(fw);
++	return 0;
++}
++
+ static struct nci_ops nxp_nci_ops = {
+ 	.open = nxp_nci_open,
+ 	.close = nxp_nci_close,
+ 	.send = nxp_nci_send,
++	.post_setup = nxp_nci_post_setup,
+ 	.fw_download = nxp_nci_fw_download,
++	.prop_ops = nxp_nci_prop_ops,
++	.n_prop_ops = ARRAY_SIZE(nxp_nci_prop_ops),
++	.get_rfprotocol = nxp_nci_get_rfprotocol,
+ };
+ 
+ int nxp_nci_probe(void *phy_id, struct device *pdev,
+diff --git a/drivers/nfc/nxp-nci/i2c.c b/drivers/nfc/nxp-nci/i2c.c
+index d9492cffd00e..f7577bc6b6a7 100644
+--- a/drivers/nfc/nxp-nci/i2c.c
++++ b/drivers/nfc/nxp-nci/i2c.c
+@@ -26,6 +26,8 @@
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+ 
+ #include <linux/acpi.h>
++#include <linux/clk.h>
++#include <linux/clk-provider.h>
+ #include <linux/delay.h>
+ #include <linux/i2c.h>
+ #include <linux/interrupt.h>
+@@ -52,6 +54,9 @@ struct nxp_nci_i2c_phy {
+ 	unsigned int gpio_en;
+ 	unsigned int gpio_fw;
+ 
++	struct clk *ref_clk;
++	struct clk *ref_clk_buf;
++
+ 	int hard_fault; /*
+ 			 * < 0 if hardware error occurred (e.g. i2c err)
+ 			 * and prevents normal operation.
+@@ -65,7 +70,8 @@ static int nxp_nci_i2c_set_mode(void *phy_id,
+ 
+ 	gpio_set_value(phy->gpio_fw, (mode == NXP_NCI_MODE_FW) ? 1 : 0);
+ 	gpio_set_value(phy->gpio_en, (mode != NXP_NCI_MODE_COLD) ? 1 : 0);
+-	usleep_range(10000, 15000);
++	/* PN553 needs ~100ms to boot after VEN assertion */
++	usleep_range(100000, 120000);
+ 
+ 	if (mode == NXP_NCI_MODE_COLD)
+ 		phy->hard_fault = 0;
+@@ -273,9 +279,10 @@ static int nxp_nci_i2c_parse_devtree(struct i2c_client *client)
+ 	if (!pp)
+ 		return -ENODEV;
+ 
++	/* Try mainline binding, then legacy NXP binding */
+ 	r = of_get_named_gpio(pp, "enable-gpios", 0);
+-	if (r == -EPROBE_DEFER)
+-		r = of_get_named_gpio(pp, "enable-gpios", 0);
++	if (r < 0)
++		r = of_get_named_gpio(pp, "nxp,pn544-ven", 0);
+ 	if (r < 0) {
+ 		nfc_err(&client->dev, "Failed to get EN gpio, error: %d\n", r);
+ 		return r;
+@@ -283,8 +290,8 @@ static int nxp_nci_i2c_parse_devtree(struct i2c_client *client)
+ 	phy->gpio_en = r;
+ 
+ 	r = of_get_named_gpio(pp, "firmware-gpios", 0);
+-	if (r == -EPROBE_DEFER)
+-		r = of_get_named_gpio(pp, "firmware-gpios", 0);
++	if (r < 0)
++		r = of_get_named_gpio(pp, "nxp,pn544-fw-dwnld", 0);
+ 	if (r < 0) {
+ 		nfc_err(&client->dev, "Failed to get FW gpio, error: %d\n", r);
+ 		return r;
+@@ -374,6 +381,29 @@ static int nxp_nci_i2c_probe(struct i2c_client *client,
+ 	if (r < 0)
+ 		goto probe_exit;
+ 
++	/* Vote for reference clock so clk_disable_unused() doesn't kill it.
++	 * The PN553 needs BBCLK2 (19.2MHz from PMIC). */
++	phy->ref_clk = devm_clk_get(&client->dev, "ref_clk");
++	if (!IS_ERR(phy->ref_clk)) {
++		r = clk_prepare_enable(phy->ref_clk);
++		if (r)
++			dev_warn(&client->dev, "ref_clk enable failed: %d\n", r);
++		else
++			dev_info(&client->dev, "Enabled ref_clk\n");
++	}
++
++	phy->ref_clk_buf = __clk_lookup("bb_clk2");
++	if (!phy->ref_clk_buf) {
++		dev_warn(&client->dev, "bb_clk2 not found\n");
++	} else {
++		r = clk_prepare_enable(phy->ref_clk_buf);
++		if (r)
++			dev_warn(&client->dev, "bb_clk2 enable failed: %d\n", r);
++		else
++			dev_info(&client->dev, "Enabled bb_clk2 buffer\n");
++		r = 0;
++	}
++
+ 	r = request_threaded_irq(client->irq, NULL,
+ 				 nxp_nci_i2c_irq_thread_fn,
+ 				 IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+@@ -403,6 +433,7 @@ MODULE_DEVICE_TABLE(i2c, nxp_nci_i2c_id_table);
+ 
+ static const struct of_device_id of_nxp_nci_i2c_match[] = {
+ 	{ .compatible = "nxp,nxp-nci-i2c", },
++	{ .compatible = "nxp,pn544", },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(of, of_nxp_nci_i2c_match);
+diff --git a/net/nfc/nci/core.c b/net/nfc/nci/core.c
+index c25e9b4179c3..c37e73170908 100644
+--- a/net/nfc/nci/core.c
++++ b/net/nfc/nci/core.c
+@@ -190,20 +190,34 @@ static void nci_init_complete_req(struct nci_dev *ndev, unsigned long opt)
+ 	/* set rf mapping configurations */
+ 	*num = 0;
+ 
+-	/* by default mapping is set to NCI_RF_INTERFACE_FRAME */
++	/* Map T2T (MIFARE) and T3T (Felica) to FRAME interface */
++	cfg[*num].rf_protocol = NCI_RF_PROTOCOL_T2T;
++	cfg[*num].mode = NCI_DISC_MAP_MODE_POLL;
++	cfg[*num].rf_interface = NCI_RF_INTERFACE_FRAME;
++	(*num)++;
++
++	cfg[*num].rf_protocol = NCI_RF_PROTOCOL_T3T;
++	cfg[*num].mode = NCI_DISC_MAP_MODE_POLL;
++	cfg[*num].rf_interface = NCI_RF_INTERFACE_FRAME;
++	(*num)++;
++
++	/* NXP proprietary MIFARE Classic — the NFCC handles crypto-1 auth */
++	cfg[*num].rf_protocol = 0x80;
++	cfg[*num].mode = NCI_DISC_MAP_MODE_POLL;
++	cfg[*num].rf_interface = 0x80;
++	(*num)++;
++
+ 	for (i = 0; i < ndev->num_supported_rf_interfaces; i++) {
+ 		if (ndev->supported_rf_interfaces[i] ==
+ 		    NCI_RF_INTERFACE_ISO_DEP) {
+ 			cfg[*num].rf_protocol = NCI_RF_PROTOCOL_ISO_DEP;
+-			cfg[*num].mode = NCI_DISC_MAP_MODE_POLL |
+-				NCI_DISC_MAP_MODE_LISTEN;
++			cfg[*num].mode = NCI_DISC_MAP_MODE_POLL;
+ 			cfg[*num].rf_interface = NCI_RF_INTERFACE_ISO_DEP;
+ 			(*num)++;
+ 		} else if (ndev->supported_rf_interfaces[i] ==
+ 			   NCI_RF_INTERFACE_NFC_DEP) {
+ 			cfg[*num].rf_protocol = NCI_RF_PROTOCOL_NFC_DEP;
+-			cfg[*num].mode = NCI_DISC_MAP_MODE_POLL |
+-				NCI_DISC_MAP_MODE_LISTEN;
++			cfg[*num].mode = NCI_DISC_MAP_MODE_POLL;
+ 			cfg[*num].rf_interface = NCI_RF_INTERFACE_NFC_DEP;
+ 			(*num)++;
+ 		}
+@@ -1010,6 +1024,26 @@ static int nci_transceive(struct nfc_dev *nfc_dev, struct nfc_target *target,
+ 
+ 	pr_debug("target_idx %d, len %d\n", target->idx, skb->len);
+ 
++	/*
++	 * NXP proprietary MIFARE Classic auth command reformatting.
++	 * neard sends:  [cmd][block][key 6B][uid 4B]  (12 bytes)
++	 * NXP expects:  [cmd][block][pad 4B][key 6B]  (12 bytes)
++	 * The NFCC already knows the UID from activation, so we drop it
++	 * and move the key to the position the NXP firmware expects.
++	 */
++	if (ndev->target_active_prot == NFC_PROTO_MIFARE &&
++	    skb->len == 12) {
++		unsigned char *d = skb->data;
++		if (d[0] == 0x60 || d[0] == 0x61) {
++			unsigned char key[6];
++
++			memcpy(key, d + 2, 6);     /* save key */
++			memset(d + 2, 0, 4);       /* padding */
++			memcpy(d + 6, key, 6);     /* key at new position */
++			pr_debug("reformatted MIFARE auth for NXP interface\n");
++		}
++	}
++
+ 	if (!ndev->target_active_prot) {
+ 		pr_err("unable to exchange data, no active target\n");
+ 		return -EINVAL;

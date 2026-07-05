@@ -1,71 +1,38 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Lukas Rieger <lukas@0x53a.dev>
 Date: Wed, 19 Mar 2026 00:00:00 +0100
-Subject: [PATCH] rtc: qpnp: Add debug prints to probe for crash diagnosis
+Subject: [PATCH] rtc: qpnp: Add debug prints for crash diagnosis
 
-When qcom,qpnp-rtc-write is enabled, the watch boot-loops. Add pr_err
-trace prints throughout qpnp_rtc_probe() to capture how far it gets
-before the crash. These will appear in the journal even during short
-crash-loop boots.
+Add pr_err trace prints to qpnp_rtc_probe(), qpnp_rtc_set_time(), and
+qpnp_rtc_set_alarm() to diagnose boot crash when qpnp-rtc-write is
+enabled. Includes dump_stack() in set_time to capture call chain.
 
 Upstream-Status: Inappropriate [temporary debug patch]
 Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
 ---
- drivers/rtc/qpnp-rtc.c | 15 +++++++++++++++
- 1 file changed, 15 insertions(+)
+ drivers/rtc/qpnp-rtc.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
 
 diff --git a/drivers/rtc/qpnp-rtc.c b/drivers/rtc/qpnp-rtc.c
-index 579877306d92..378c0f6fcdb4 100644
+index 579877306d92..b0ab275cc5c0 100644
 --- a/drivers/rtc/qpnp-rtc.c
 +++ b/drivers/rtc/qpnp-rtc.c
-@@ -497,6 +497,8 @@ static int qpnp_rtc_probe(struct platform_device *pdev)
- 		return -EINVAL;
- 	}
+@@ -108,6 +108,9 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
  
-+	pr_err("qpnp-rtc-debug: probe start\n");
+ 	rtc_tm_to_time(tm, &secs);
+ 
++	pr_err("qpnp-rtc-debug: set_time CALLED, secs=%lu\n", secs);
++	dump_stack();
 +
- 	/* Get the rtc write property */
- 	rc = of_property_read_u32(pdev->dev.of_node, "qcom,qpnp-rtc-write",
- 						&rtc_dd->rtc_write_enable);
-@@ -593,14 +595,24 @@ static int qpnp_rtc_probe(struct platform_device *pdev)
- 		goto fail_rtc_enable;
- 	}
+ 	value[0] = secs & 0xFF;
+ 	value[1] = (secs >> 8) & 0xFF;
+ 	value[2] = (secs >> 16) & 0xFF;
+@@ -289,6 +292,8 @@ qpnp_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
+ 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
+ 	struct rtc_time rtc_tm;
  
-+	pr_err("qpnp-rtc-debug: write_enable=%d, ctrl=0x%02x, rtc_base=0x%x, alarm_base=0x%x\n",
-+		rtc_dd->rtc_write_enable, rtc_dd->rtc_ctrl_reg,
-+		rtc_dd->rtc_base, rtc_dd->alarm_base);
++	pr_err("qpnp-rtc-debug: set_alarm CALLED\n");
 +
- 	if (rtc_dd->rtc_write_enable == true)
- 		rtc_ops = &qpnp_rtc_rw_ops;
+ 	rtc_tm_to_time(&alarm->time, &secs);
  
-+	pr_err("qpnp-rtc-debug: using %s ops, calling rtc_device_register\n",
-+		rtc_dd->rtc_write_enable ? "rw" : "ro");
-+
- 	dev_set_drvdata(&pdev->dev, rtc_dd);
- 
- 	/* Register the RTC device */
- 	rtc_dd->rtc = rtc_device_register("qpnp_rtc", &pdev->dev,
- 					  rtc_ops, THIS_MODULE);
-+	pr_err("qpnp-rtc-debug: rtc_device_register returned (err=%ld)\n",
-+		IS_ERR(rtc_dd->rtc) ? PTR_ERR(rtc_dd->rtc) : 0);
-+
- 	if (IS_ERR(rtc_dd->rtc)) {
- 		dev_err(&pdev->dev, "%s: RTC registration failed (%ld)\n",
- 					__func__, PTR_ERR(rtc_dd->rtc));
-@@ -608,6 +620,8 @@ static int qpnp_rtc_probe(struct platform_device *pdev)
- 		goto fail_rtc_enable;
- 	}
- 
-+	pr_err("qpnp-rtc-debug: requesting alarm IRQ %d\n", rtc_dd->rtc_alarm_irq);
-+
- 	/* Request the alarm IRQ */
- 	rc = request_any_context_irq(rtc_dd->rtc_alarm_irq,
- 				 qpnp_alarm_trigger, IRQF_TRIGGER_RISING,
-@@ -620,6 +634,7 @@ static int qpnp_rtc_probe(struct platform_device *pdev)
- 	device_init_wakeup(&pdev->dev, 1);
- 	enable_irq_wake(rtc_dd->rtc_alarm_irq);
- 
-+	pr_err("qpnp-rtc-debug: probe SUCCESS\n");
- 	dev_dbg(&pdev->dev, "Probe success !!\n");
- 
- 	return 0;
+ 	/*

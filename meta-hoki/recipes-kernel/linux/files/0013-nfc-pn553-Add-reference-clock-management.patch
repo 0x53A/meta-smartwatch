@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <noreply@example.com>
+Date: Fri, 21 Mar 2026 12:00:00 +0000
+Subject: [PATCH] nfc: pn553: Add reference clock management and VEN boot delay
+
+Enable both bb_clk2_pin (DT "ref_clk") and bb_clk2 (buffer) clocks
+for the NQx NFC controller. Without the buffer clock, the oscillator
+shuts off during Linux late-init clk_disable_unused().
+
+Also add 100ms delay after VEN assertion in power-on ioctl. The NXP
+PN553 chip needs time to boot after VEN goes high; without this delay,
+the HAL's first I2C transaction arrives within ~1ms and gets NACKed.
+
+Upstream-Status: Inappropriate [device-specific]
+---
+ drivers/nfc/pn553-i2c/pn553.c | 49 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+--- a/drivers/nfc/pn553-i2c/pn553.c	2026-03-22 00:02:18.606741261 +0100
++++ b/drivers/nfc/pn553-i2c/pn553.c	2026-03-22 00:02:18.622839411 +0100
+@@ -56,6 +56,8 @@
+ #include <linux/of_gpio.h>
+ #include <linux/miscdevice.h>
+ #include <linux/spinlock.h>
++#include <linux/clk.h>
++#include <linux/clk-provider.h>
+ #include <asm/siginfo.h>
+ #include <linux/rcupdate.h>
+ #include <linux/sched.h>
+@@ -109,6 +111,8 @@
+     unsigned long       dwpLinkUpdateStat; /*DWP link update status*/
+     struct workqueue_struct *pSecureTimerCbWq;
+     struct work_struct wq_task;
++    struct clk          *ref_clk;
++    struct clk          *ref_clk_buf;
+ };
+ /* HiKey Compilation fix */
+ #ifndef HiKey_620_COMPILATION_FIX
+@@ -526,6 +530,7 @@
+             pn544_dev->nfc_ven_enabled = true;
+             if (pn544_dev->spi_ven_enabled == false || (pn544_dev->chip_pwr_scheme == PN80T_EXT_PMU_SCHEME)) {
+                 gpio_set_value(pn544_dev->ven_gpio, 1);
++                msleep(100); /* Wait for NFC chip to boot after VEN high */
+             }
+         } else if (arg == 0) {
+             /* power off */
+@@ -1346,6 +1351,28 @@
+     pn544_dev->client   = client;
+     pn544_dev->secure_timer_cnt = 0;
+ 
++    /* Enable NFC reference clock (BBCLK2).
++     * DT "ref_clk" is bb_clk2_pin (pin output gate).
++     * Also need bb_clk2 (buffer) to keep oscillator running. */
++    pn544_dev->ref_clk = clk_get(&client->dev, "ref_clk");
++    if (IS_ERR(pn544_dev->ref_clk)) {
++        pn544_dev->ref_clk = NULL;
++    } else {
++        clk_prepare_enable(pn544_dev->ref_clk);
++        dev_info(&client->dev, "enabled ref_clk (bb_clk2_pin)\n");
++    }
++    /* Vote for bb_clk2 clock buffer via global lookup */
++    pn544_dev->ref_clk_buf = __clk_lookup("bb_clk2");
++    if (!pn544_dev->ref_clk_buf) {
++        dev_warn(&client->dev, "bb_clk2 not found\n");
++    } else {
++        ret = clk_prepare_enable(pn544_dev->ref_clk_buf);
++        if (ret)
++            dev_err(&client->dev, "bb_clk2 enable failed: %d\n", ret);
++        else
++            dev_info(&client->dev, "enabled bb_clk2 buffer\n");
++    }
++
+     ret = gpio_direction_input(pn544_dev->irq_gpio);
+     if (ret < 0) {
+         pr_err("%s :not able to set irq_gpio as input\n", __func__);
+@@ -1463,6 +1490,16 @@
+     pn544_dev->nfc_ven_enabled = false;
+     pn544_dev->spi_ven_enabled = false;
+ 
++    if (pn544_dev->ref_clk) {
++        clk_disable_unprepare(pn544_dev->ref_clk);
++        clk_put(pn544_dev->ref_clk);
++        pn544_dev->ref_clk = NULL;
++    }
++    if (pn544_dev->ref_clk_buf) {
++        clk_disable_unprepare(pn544_dev->ref_clk_buf);
++        pn544_dev->ref_clk_buf = NULL;
++    }
++
+     if (pn544_dev->firm_gpio)
+         gpio_free(pn544_dev->firm_gpio);
+     kfree(pn544_dev);

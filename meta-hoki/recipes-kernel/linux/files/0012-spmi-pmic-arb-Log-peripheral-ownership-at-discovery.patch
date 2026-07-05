@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@0x53a.dev>
+Date: Fri, 21 Mar 2026 00:00:00 +0100
+Subject: [PATCH] spmi: pmic-arb: Log peripheral ownership at discovery
+
+Log the APID, PPID (SID:periph), and owner EE for each SPMI peripheral
+as it is discovered by the arbiter driver. This helps diagnose which
+execution environment (APPS=0, RPM=1, Modem=2, TZ=3) owns each PMIC
+peripheral's write channel.
+
+Upstream-Status: Inappropriate [temporary debug patch]
+Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+---
+ drivers/spmi/spmi-pmic-arb.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/spmi/spmi-pmic-arb.c b/drivers/spmi/spmi-pmic-arb.c
+index abc1234..def5678 100644
+--- a/drivers/spmi/spmi-pmic-arb.c
++++ b/drivers/spmi/spmi-pmic-arb.c
+@@ -877,6 +877,9 @@ static u16 pmic_arb_find_apid(struct spmi_pmic_arb *pmic_arb, u16 ppid)
+ 		id = (regval >> 8) & PMIC_ARB_PPID_MASK;
+ 		pmic_arb->ppid_to_apid[id] = apid | PMIC_ARB_APID_VALID;
+ 		apidd->ppid = id;
++		pr_err("spmi-arb: apid=%u ppid=0x%04x (sid=%u per=0x%02x) owner_ee=%u\n",
++		       apid, id, id >> 8, id & 0xff,
++		       apidd->write_ee);
+ 		if (id == ppid) {
+ 			apid |= PMIC_ARB_APID_VALID;
+ 			break;

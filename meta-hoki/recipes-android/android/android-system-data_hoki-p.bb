@@ -22,6 +22,10 @@ do_install() {
 
     install -d ${D}/vendor/
     cp -r vendor/* ${D}/vendor/
+
+    # Disable the Android NFC HAL — it downloads PN557 firmware onto the PN553
+    # chip, killing it after ~21s. NFC uses the mainline nxp-nci driver + neard.
+    rm -f ${D}/vendor/etc/init/android.hardware.nfc@1.1-service.rc
 }
 
 do_package_qa() {

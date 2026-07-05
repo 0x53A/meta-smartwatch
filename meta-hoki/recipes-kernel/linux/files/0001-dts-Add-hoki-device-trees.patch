@@ -115,10 +115,8 @@ new file mode 100644
 index 000000000000..7c47bd67f713
 --- /dev/null
 +++ b/arch/arm/boot/dts/sda429-hoki/sda429-hoki.dts
-@@ -0,0 +1,11743 @@
+@@ -0,0 +1,11722 @@
 +/dts-v1/;
-+
-+/memreserve/ 0x8ff00000 0x100000;
 +
 +/ {
 +	#address-cells = <0x02>;
@@ -5326,11 +5324,6 @@ index 000000000000..7c47bd67f713
 +			#address-cells = <0x01>;
 +			#size-cells = <0x01>;
 +
-+			download_mode@0 {
-+				compatible = "qcom,msm-imem-download_mode";
-+				reg = <0x0 0x08>;
-+			};
-+
 +			mem_dump_table@10 {
 +				compatible = "qcom,msm-imem-mem_dump_table";
 +				reg = <0x10 0x08>;
@@ -5344,11 +5337,6 @@ index 000000000000..7c47bd67f713
 +			diag_dload@c8 {
 +				compatible = "qcom,msm-imem-diag-dload";
 +				reg = <0xc8 0xc8>;
-+			};
-+
-+			emergency_download_mode@fe0 {
-+				compatible = "qcom,msm-imem-emergency_download_mode";
-+				reg = <0xfe0 0x0c>;
 +			};
 +
 +			restart_reason@65c {
@@ -10925,7 +10913,7 @@ index 000000000000..7c47bd67f713
 +	};
 +
 +	chosen {
-+		bootargs = "sched_enable_hmp=1 kpti=0 ramoops.mem_address=0x8ff00000 ramoops.mem_size=0x100000 ramoops.record_size=0x20000 ramoops.console_size=0x20000 ramoops.pmsg_size=0x20000";
++		bootargs = "sched_enable_hmp=1 kpti=0";
 +	};
 +
 +	aliases {
@@ -11056,15 +11044,6 @@ index 000000000000..7c47bd67f713
 +			size = <0x00 0x400000>;
 +			linux,phandle = <0xef>;
 +			phandle = <0xef>;
-+		};
-+
-+		ramoops@8ff00000 {
-+			compatible = "ramoops";
-+			reg = <0x00 0x8ff00000 0x00 0x100000>;
-+			record-size = <0x20000>;
-+			console-size = <0x20000>;
-+			pmsg-size = <0x20000>;
-+			no-map;
 +		};
 +
 +		splash_region@83000000 {

@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <lukas@local>
+Date: Fri, 21 Mar 2026 00:00:00 +0000
+Subject: [PATCH] diag: Forward unregistered subsystem commands to modem
+
+On APQ/wearable platforms (e.g. SDA429W) the modem does not register
+certain DIAG subsystem commands (notably EFS2 / subsystem 0x13) in the
+AP-side routing table, even though the modem firmware handles them.
+
+Without this patch, unregistered subsystem dispatch commands are
+rejected with DIAG_BAD_CMD_F (0x15) instead of being forwarded to the
+modem.  This prevents userspace tools from accessing the modem's EFS
+filesystem to provision NV items such as gnss_external_lna_state.
+
+Add a fallback before the error response that forwards any unregistered
+subsystem dispatch command (cmd_code 0x4B) to the modem peripheral
+when it is online.
+
+Upstream-Status: Inappropriate [device-specific workaround]
+Signed-off-by: Lukas Rieger <lukas@local>
+---
+ drivers/char/diag/diagfwd.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/char/diag/diagfwd.c b/drivers/char/diag/diagfwd.c
+index fda283fcb7a3..7f1a45223c7b 100644
+--- a/drivers/char/diag/diagfwd.c
++++ b/drivers/char/diag/diagfwd.c
+@@ -1344,6 +1344,22 @@ int diag_process_apps_pkt(unsigned char *buf, int len, int pid)
+ #endif
+
+ 	/* We have now come to the end of the function. */
++	/*
++	 * Forward unregistered subsystem commands to the modem if it is
++	 * online.  On APQ/wearable platforms the modem may not register
++	 * certain subsystems (e.g. EFS2 / 0x13) even though its firmware
++	 * handles them.  Without this fallback those commands are silently
++	 * rejected with DIAG_BAD_CMD_F.
++	 */
++	if (len >= 4 && *buf == DIAG_CMD_DIAG_SUBSYS &&
++	    driver->diagfwd_cntl[PERIPHERAL_MODEM] &&
++	    driver->diagfwd_cntl[PERIPHERAL_MODEM]->ch_open) {
++		int fwd_err = diagfwd_write(PERIPHERAL_MODEM, TYPE_CMD,
++					    buf, len);
++		if (fwd_err == 0)
++			return 0;
++	}
++
+ 	if (chk_apps_only())
+ 		diag_send_error_rsp(buf, len, pid);
+

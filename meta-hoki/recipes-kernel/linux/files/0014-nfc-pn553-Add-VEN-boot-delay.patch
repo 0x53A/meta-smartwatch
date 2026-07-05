@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lukas Rieger <noreply@example.com>
+Date: Fri, 21 Mar 2026 23:00:00 +0000
+Subject: [PATCH] nfc: pn553: Add 100ms delay after VEN assertion
+
+The NXP PN553 chip needs time to boot after VEN goes high. Without
+this delay, the HAL's first I2C transaction arrives within ~1ms and
+gets NACKed by the chip.
+
+Upstream-Status: Inappropriate [device-specific]
+---
+ drivers/nfc/pn553-i2c/pn553.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/nfc/pn553-i2c/pn553.c
++++ b/drivers/nfc/pn553-i2c/pn553.c
+@@ -528,6 +528,7 @@
+             pn544_dev->nfc_ven_enabled = true;
+             if (pn544_dev->spi_ven_enabled == false || (pn544_dev->chip_pwr_scheme == PN80T_EXT_PMU_SCHEME)) {
+                 gpio_set_value(pn544_dev->ven_gpio, 1);
++                msleep(100); /* Wait for NFC chip to boot after VEN high */
+             }
+         } else if (arg == 0) {
+             /* power off */
