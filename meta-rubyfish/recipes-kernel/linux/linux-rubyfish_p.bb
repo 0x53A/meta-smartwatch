@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -20,10 +20,10 @@ SRC_URI = " git://github.com/mobvoi/mobvoi-ticwatch-kernel;branch=mobvoi-android
 "
 
 SRCREV = "c428ef3654d52e816308a6cf11009a1742f86c1c"
-LINUX_VERSION ?= "4.9"
-PV = "${LINUX_VERSION}+pie"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "4.9.232"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

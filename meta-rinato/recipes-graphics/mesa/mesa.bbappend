@@ -1,1 +1,1 @@
-PACKAGECONFIG:append:rinato = " kmsro lima"
+PACKAGECONFIG:append:rinato = " lima"

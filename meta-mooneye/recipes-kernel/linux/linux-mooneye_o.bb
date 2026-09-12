@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -7,6 +7,8 @@ HOMEPAGE = "https://android.googlesource.com/"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 COMPATIBLE_MACHINE = "mooneye"
+
+KCONFIG_MODE = "alldefconfig"
 
 # Use an older version of gcc (gcc >= 9 doesn't boot.)
 inherit kernel-gcc8
@@ -23,10 +25,10 @@ SRC_URI = "git://android.googlesource.com/kernel/mediatek;branch=android-mediate
            file://img_info \
            "
 SRCREV = "faeb8c03bca6c09f8817f4d509e0280b53af8b99"
-LINUX_VERSION ?= "4.4"
-PV = "${LINUX_VERSION}+oreo"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "4.4.126"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

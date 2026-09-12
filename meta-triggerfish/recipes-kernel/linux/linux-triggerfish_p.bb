@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -7,6 +7,8 @@ HOMEPAGE = "https://android.googlesource.com/"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 COMPATIBLE_MACHINE = "triggerfish"
+
+KCONFIG_MODE = "alldefconfig"
 
 # Use an older version of gcc (gcc >= 9 doesn't boot.)
 inherit kernel-gcc8
@@ -22,10 +24,10 @@ SRC_URI = "git://android.googlesource.com/kernel/msm;branch=android-msm-triggerf
            "
 
 SRCREV = "82824770e036a1e7576a299bc37b52d633d62675"
-LINUX_VERSION ?= "4.9"
-PV = "${LINUX_VERSION}+pie"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "4.9.112"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

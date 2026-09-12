@@ -7,7 +7,6 @@ SRC_URI = "git://github.com/asteroidos/narwhal-hands-timesync.git;branch=main;pr
 SRCREV = "8ed03392379a56883064e6b0048a527dea773373"
 PR = "r0"
 PV = "+git${SRCPV}"
-S = "${WORKDIR}/git"
 DEPENDS = "qtbase"
 inherit qt6-cmake
 PACKAGE_ARCH = "${MACHINE_ARCH}"

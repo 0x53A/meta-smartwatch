@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -20,10 +20,10 @@ SRC_URI = " git://android.googlesource.com/kernel/msm;branch=android-msm-ray-3.1
 "
 
 SRCREV = "ceb81fda35a733c904776eaaabd72dddf1e603c9"
-LINUX_VERSION ?= "3.18"
-PV = "${LINUX_VERSION}+oreo"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.18.24"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

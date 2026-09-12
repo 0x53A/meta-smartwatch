@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -8,6 +8,8 @@ LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=6bc538ed5bd9a7fc9398086aedcd7e46"
 COMPATIBLE_MACHINE = "sparrow"
 
+KCONFIG_MODE = "alldefconfig"
+
 DEPENDS += "rsync-native"
 
 SRC_URI = "git://github.com/z3ntu/linux;branch=qcom-msm8226-6.0.y-dsi;protocol=https \
@@ -15,10 +17,10 @@ SRC_URI = "git://github.com/z3ntu/linux;branch=qcom-msm8226-6.0.y-dsi;protocol=h
     file://defconfig \
     file://img_info "
 SRCREV = "70abf059e2b6984116e2e4fd3894fa91a829e248"
-LINUX_VERSION ?= "6.0"
-PV = "${LINUX_VERSION}"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "6.0-rc6"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

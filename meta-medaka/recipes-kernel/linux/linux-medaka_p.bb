@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -12,13 +12,14 @@ SRC_URI = " git://android.googlesource.com/kernel/exynos;branch=android-exynos-m
     file://defconfig \
     file://img_info \
     file://0001-scripts-dtc-Remove-redundant-YYLOC-global-declaratio.patch \
+    file://0002-dw_mmc-condition-on-CONFIG_BCMDHD_SDIO-instead-of-CO.patch \
 " 
 
 SRCREV = "6115e9fa122a3d1d38af5696b34fdd2c7364d7f9"
-LINUX_VERSION ?= "4.4"
-PV = "${LINUX_VERSION}+pie"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "4.4.133"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 # The kernel on this device is 64 bit, but the android libs are 32 bit, so we basically need to build all of userspace as 32 bit. 
 # So we use a series of hacks to build just this kernel package as aarch64. This includes the below overrides, as well as weird gcc&bintools packages which provide aarch64 tooling for an otherwise arm(32) target

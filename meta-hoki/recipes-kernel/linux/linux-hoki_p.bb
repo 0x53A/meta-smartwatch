@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -54,10 +54,10 @@ python do_unpack:append() {
         os.symlink(local_kernel, s)
 }
 
-LINUX_VERSION ?= "4.14"
-PV = "${LINUX_VERSION}+pie"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "4.14.206"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

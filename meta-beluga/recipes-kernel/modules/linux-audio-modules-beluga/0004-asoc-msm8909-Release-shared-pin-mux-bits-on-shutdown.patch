@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Darrel=20Gri=C3=ABt?= <dgriet@gmail.com>
+Date: Wed, 26 Aug 2026 12:00:00 +0200
+Subject: [PATCH] asoc: msm8909: Release shared pin mux bits on shutdown
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The GPIO mux registers are shared between the MI2S ports and AUXPCM, and every
+startup handler only ORs its own bits in. Nothing clears them again, so the mux
+holds everything opened since boot and the speaker ends up muxed away.
+
+The LPASS clock still enables and ASoC still reports the back end started, so
+the kernel logs no error. The bit clock never reaches the TFA9895 though, which
+reports CLKS=0/PLLS=0 and stops switching until the next boot:
+
+    Startup of device [left] is a warmstart
+    ERROR: SWS
+    Misc errors detected: STATUS_FLAG0 = 0x1d
+
+Enumerating the card is enough. Opening AUXPCM Hostless, Tertiary MI2S_TX
+Hostless, VoLTE, VoWLAN, INT_HFP_BT Hostless or the senary capture device each
+silence the speaker, so one espeak run silences the watch until reboot.
+
+Clear the bits a path claimed once it is done with them. Bits shared with
+another path stay set. There is no refcount here, and dropping one under an
+active stream would be worse than leaking it.
+
+Upstream-Status: Inappropriate [android vendor kernel]
+Signed-off-by: Darrel Griët <dgriet@gmail.com>
+---
+diff --git a/asoc/msm8909.c b/asoc/msm8909.c
+index a3706907..2e5de090 100755
+--- a/asoc/msm8909.c
++++ b/asoc/msm8909.c
+@@ -829,6 +829,29 @@ static int msm_mclk_event(struct snd_soc_dapm_widget *w,
+ 	return 0;
+ }
+ 
++/*
++ * The GPIO mux registers are shared between the MI2S ports and AUXPCM, and
++ * every startup handler only ORs its own bits in. With no matching clear on
++ * shutdown the mux holds everything opened since boot, which leaves the
++ * speaker muxed away. The LPASS clock still enables and the kernel logs no
++ * error, but the bit clock never reaches the amplifier, so it reports
++ * CLKS=0/PLLS=0 and stops switching until the next boot.
++ *
++ * Clear the bits a path claimed once it is done with them. Bits shared with
++ * another path stay set. There is no refcount here, and dropping one under an
++ * active stream would be worse than leaking it.
++ */
++static void msm_mi2s_mux_release(void __iomem *mux, u32 bits)
++{
++	u32 val;
++
++	if (!mux)
++		return;
++
++	val = ioread32(mux);
++	iowrite32(val & ~bits, mux);
++}
++
+ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
+ {
+ 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+@@ -896,6 +919,8 @@ static void msm_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
+ 	if (ret < 0)
+ 		pr_err("%s:clock disable failed; ret=%d\n", __func__,
+ 				ret);
++	msm_mi2s_mux_release(pdata->vaddr_gpio_mux_spkr_ctl, 0x00010000);
++	msm_mi2s_mux_release(pdata->vaddr_gpio_mux_mic_ctl, 0x00200000);
+ 	if (atomic_read(&pdata->int_mclk0_rsc_ref) > 0) {
+ 		atomic_dec(&pdata->int_mclk0_rsc_ref);
+ 		pr_debug("%s: decrementing mclk_res_ref %d\n", __func__,
+@@ -965,6 +990,7 @@ static void msm_prim_auxpcm_shutdown(struct snd_pcm_substream *substream)
+ 		(atomic_read(&pdata->int_mclk0_rsc_ref) == 0)) {
+ 		msm_enable_dig_cdc_clk(codec, 0, true);
+ 	}
++	msm_mi2s_mux_release(pdata->vaddr_gpio_mux_pcm_ctl, 0x00000001);
+ 	if (pdata->mi2s_gpio_p[QUAT_MI2S]) {
+ 		ret =  msm_cdc_pinctrl_select_sleep_state(
+ 			pdata->mi2s_gpio_p[QUAT_MI2S]);
+@@ -1065,6 +1091,7 @@ static void msm_sec_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
+ 	ret = msm_mi2s_sclk_ctl(substream, false);
+ 	if (ret < 0)
+ 		pr_err("%s:clock disable failed\n", __func__);
++	msm_mi2s_mux_release(pdata->vaddr_gpio_mux_spkr_ctl, 0x0004835c);
+ 	}
+ }
+ 
+-- 
+2.47.3

@@ -1,0 +1,36 @@
+Subject: [PATCH] kbuild: modfinal C compile via @response-file (qcacld/WiFi)
+
+cc-o-c-respfile.patch routes $(c_flags) through an @response-file in
+scripts/Makefile.build, but scripts/Makefile.modfinal carries its own
+independent cmd_cc_o_c for the generated %.mod.o objects. That one still
+passes the flags on the command line, so building qcacld's wlan.mod.o with
+the huge -I set the recipe computes for the wlan trees exceeds the kernel
+MAX_ARG_STRLEN (128 KiB per argv):
+
+    make[3]: /bin/sh: Argument list too long
+    make[3]: *** [scripts/Makefile.modfinal:31: .../wlan.mod.o] Error 127
+
+Apply the same technique here. The filter-out stays inside the response
+file so CC_FLAGS_CFI/CFLAGS_GCOV are still dropped.
+
+Upstream-Status: Inappropriate [aurora qcacld out-of-tree workaround]
+
+Signed-off-by: Darrel Griet <dgriet@gmail.com>
+---
+--- a/scripts/Makefile.modfinal
++++ b/scripts/Makefile.modfinal
+@@ -25,7 +25,13 @@
+ part-of-module = y
+ 
+ quiet_cmd_cc_o_c = CC [M]  $@
+-      cmd_cc_o_c = $(CC) $(filter-out $(CC_FLAGS_CFI) $(CFLAGS_GCOV), $(c_flags)) -c -o $@ $<
++# qcacld: $(c_flags) carries the recipe-generated wlan -I set, which is
++# large enough that `$(CC) $(c_flags) ...` exceeds the kernel
++# MAX_ARG_STRLEN (128 KiB single argv) -> /bin/sh "Argument list too
++# long" (E127) before cc runs. Pass the flags via a clang/gcc
++# @response-file written with GNU make builtin $(file ...). (aurora
++# qcacld/WiFi.)
++      cmd_cc_o_c = $(file >$@.rsp,$(filter-out $(CC_FLAGS_CFI) $(CFLAGS_GCOV), $(c_flags))) $(CC) @$@.rsp -c -o $@ $< && rm -f $@.rsp
+ 
+ %.mod.o: %.mod.c FORCE
+ 	$(call if_changed_dep,cc_o_c)

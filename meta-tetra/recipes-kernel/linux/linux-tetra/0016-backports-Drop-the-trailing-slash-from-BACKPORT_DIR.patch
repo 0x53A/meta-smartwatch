@@ -1,0 +1,48 @@
+From: Darrel Griët <dgriet@gmail.com>
+Date: Wed, 5 Aug 2026 00:00:00 +0200
+Subject: [PATCH] backports: Drop the trailing slash from BACKPORT_DIR
+
+Every Kconfig file of the integrated backports tree is pulled in as
+source "$BACKPORT_DIR/.../Kconfig". With BACKPORT_DIR set to "backports/"
+those expand to paths carrying a double slash, e.g.
+
+    backports//drivers/net/wireless/Kconfig
+
+kconfig itself copes, but it records the names verbatim in
+include/config/auto.conf.cmd, both in $(deps_config) and in the catch-all
+"$(deps_config): ;" rule. In an out-of-tree build ($B != $S, as used by
+linux-yocto.inc) those prerequisites are relative to the build directory and
+have to be resolved through VPATH = $(srctree). GNU make's VPATH search does
+not handle "//" inside a file name, so all 157 of them are treated as
+non-existent, the empty recipe "makes" them, and include/config/auto.conf is
+left permanently out of date.
+
+Since auto.conf is an included makefile, make regenerates it via
+silentoldconfig and then restarts - forever. The build never reaches a single
+CC, it just loops on:
+
+      GEN     .../linux-tetra-standard-build/Makefile
+    scripts/kconfig/conf --silentoldconfig Kconfig
+
+Dropping the trailing slash makes every source path single-slashed and lets
+VPATH resolve them. CONFIG_BACKPORT_DIR has no other consumer: backports/Makefile
+defines its own make-level BACKPORT_DIR.
+
+Upstream-Status: Inappropriate [android vendor kernel]
+---
+ backports/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backports/Kconfig b/backports/Kconfig
+index 5bc32035cf7..fd740b58433 100644
+--- a/backports/Kconfig
++++ b/backports/Kconfig
+@@ -4,7 +4,7 @@ config BACKPORT_INTEGRATE
+
+ config BACKPORT_DIR
+ 	string
+-	default "backports/"
++	default "backports"
+
+ config BACKPORT_VERSION
+ 	string

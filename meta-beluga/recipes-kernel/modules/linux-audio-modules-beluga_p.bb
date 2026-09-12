@@ -9,11 +9,11 @@ SRC_URI = " git://android.googlesource.com/kernel/msm-extra;branch=android-msm-b
         file://0001-Make-warnings-non-fatal.patch \
         file://0002-Avoid-shell-expansion-in-recursively-expanded-variab.patch \
         file://0003-Remove-export-from-Kbuild-files.patch \
+        file://0004-asoc-msm8909-Release-shared-pin-mux-bits-on-shutdown.patch \
 "
 SRCREV = "9c56e30ea127e2c88188db5e2c1637e346ae75a3"
 LINUX_VERSION ?= "4.9"
 PV = "${LINUX_VERSION}+pie"
-S = "${WORKDIR}/git"
 B = "${S}"
 
 DEPENDS = "virtual/kernel virtual/cross-cc"

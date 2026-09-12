@@ -26,28 +26,28 @@ PKGV = "${AURORA_KERNEL_VERSION}"
 # private/msm-google-modules/, glue under private/google-modules/).
 AGM = "git://android.googlesource.com/kernel"
 SRC_URI = "\
-  ${AGM}/msm-extra;protocol=https;branch=${KBR};name=audio;destsuffix=git/private/msm-google-modules/audio \
-  ${AGM}/msm-modules/bt;protocol=https;branch=${KBR};name=bt;destsuffix=git/private/msm-google-modules/bt \
-  ${AGM}/msm-extra/dataipa;protocol=https;branch=${KBR};name=dataipa;destsuffix=git/private/msm-google-modules/dataipa \
-  ${AGM}/msm-modules/datarmnet;protocol=https;branch=${KBR};name=datarmnet;destsuffix=git/private/msm-google-modules/datarmnet \
-  ${AGM}/msm-modules/datarmnet-ext;protocol=https;branch=${KBR};name=datarmnetext;destsuffix=git/private/msm-google-modules/datarmnet-ext \
-  ${AGM}/msm-extra/display-drivers;protocol=https;branch=${KBR};name=display;destsuffix=git/private/msm-google-modules/display \
-  ${AGM}/msm-modules/graphics;protocol=https;branch=${KBR};name=graphics;destsuffix=git/private/msm-google-modules/graphics \
-  ${AGM}/msm-modules/mm;protocol=https;branch=${KBR};name=mm;destsuffix=git/private/msm-google-modules/mm \
-  ${AGM}/msm-modules/mmrm;protocol=https;branch=${KBR};name=mmrm;destsuffix=git/private/msm-google-modules/mmrm \
-  ${AGM}/msm-modules/securemsm;protocol=https;branch=${KBR};name=securemsm;destsuffix=git/private/msm-google-modules/securemsm \
-  ${AGM}/msm-extra/video-driver;protocol=https;branch=${KBR};name=video;destsuffix=git/private/msm-google-modules/video \
-  ${AGM}/msm-modules/wlan-platform;protocol=https;branch=${KBR};name=wlanplat;destsuffix=git/private/msm-google-modules/wlan/platform \
-  ${AGM}/msm-modules/qcacld;protocol=https;branch=${KBR};name=qcacld;destsuffix=git/private/msm-google-modules/wlan/qcacld-3.0 \
-  ${AGM}/msm-modules/qca-wfi-host-cmn;protocol=https;branch=${KBR};name=qcacmn;destsuffix=git/private/msm-google-modules/wlan/qca-wifi-host-cmn \
-  ${AGM}/msm-modules/wlan-fw-api;protocol=https;branch=${KBR};name=wlanfwapi;destsuffix=git/private/msm-google-modules/wlan/fw-api \
-  ${AGM}/google-modules/soc/msm;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=socmsm;destsuffix=git/private/google-modules/soc/msm \
-  ${AGM}/google-modules/bms;protocol=https;branch=${KBR};name=bms;destsuffix=git/private/google-modules/bms \
-  ${AGM}/google-modules/touch/novatek_touch;protocol=https;branch=${KBR};name=nvttouch;destsuffix=git/private/google-modules/touch/novatek \
-  ${AGM}/google-modules/nanohub;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=nanohub;destsuffix=git/private/google-modules/nanohub \
-  ${AGM}/google-modules/rotary-encoders;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=rotary;destsuffix=git/private/google-modules/rotary-encoders \
-  ${AGM}/google-modules/sound/mcu_mic_codec;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=mcumic;destsuffix=git/private/google-modules/sound/mcu_mic_codec \
-  ${AGM}/google-modules/amplifiers;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=amplifiers;destsuffix=git/private/google-modules/amplifiers \
+  ${AGM}/msm-extra;protocol=https;branch=${KBR};name=audio;destsuffix=src/private/msm-google-modules/audio \
+  ${AGM}/msm-modules/bt;protocol=https;branch=${KBR};name=bt;destsuffix=src/private/msm-google-modules/bt \
+  ${AGM}/msm-extra/dataipa;protocol=https;branch=${KBR};name=dataipa;destsuffix=src/private/msm-google-modules/dataipa \
+  ${AGM}/msm-modules/datarmnet;protocol=https;branch=${KBR};name=datarmnet;destsuffix=src/private/msm-google-modules/datarmnet \
+  ${AGM}/msm-modules/datarmnet-ext;protocol=https;branch=${KBR};name=datarmnetext;destsuffix=src/private/msm-google-modules/datarmnet-ext \
+  ${AGM}/msm-extra/display-drivers;protocol=https;branch=${KBR};name=display;destsuffix=src/private/msm-google-modules/display \
+  ${AGM}/msm-modules/graphics;protocol=https;branch=${KBR};name=graphics;destsuffix=src/private/msm-google-modules/graphics \
+  ${AGM}/msm-modules/mm;protocol=https;branch=${KBR};name=mm;destsuffix=src/private/msm-google-modules/mm \
+  ${AGM}/msm-modules/mmrm;protocol=https;branch=${KBR};name=mmrm;destsuffix=src/private/msm-google-modules/mmrm \
+  ${AGM}/msm-modules/securemsm;protocol=https;branch=${KBR};name=securemsm;destsuffix=src/private/msm-google-modules/securemsm \
+  ${AGM}/msm-extra/video-driver;protocol=https;branch=${KBR};name=video;destsuffix=src/private/msm-google-modules/video \
+  ${AGM}/msm-modules/wlan-platform;protocol=https;branch=${KBR};name=wlanplat;destsuffix=src/private/msm-google-modules/wlan/platform \
+  ${AGM}/msm-modules/qcacld;protocol=https;branch=${KBR};name=qcacld;destsuffix=src/private/msm-google-modules/wlan/qcacld-3.0 \
+  ${AGM}/msm-modules/qca-wfi-host-cmn;protocol=https;branch=${KBR};name=qcacmn;destsuffix=src/private/msm-google-modules/wlan/qca-wifi-host-cmn \
+  ${AGM}/msm-modules/wlan-fw-api;protocol=https;branch=${KBR};name=wlanfwapi;destsuffix=src/private/msm-google-modules/wlan/fw-api \
+  ${AGM}/google-modules/soc/msm;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=socmsm;destsuffix=src/private/google-modules/soc/msm \
+  ${AGM}/google-modules/bms;protocol=https;branch=${KBR};name=bms;destsuffix=src/private/google-modules/bms \
+  ${AGM}/google-modules/touch/novatek_touch;protocol=https;branch=${KBR};name=nvttouch;destsuffix=src/private/google-modules/touch/novatek \
+  ${AGM}/google-modules/nanohub;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=nanohub;destsuffix=src/private/google-modules/nanohub \
+  ${AGM}/google-modules/rotary-encoders;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=rotary;destsuffix=src/private/google-modules/rotary-encoders \
+  ${AGM}/google-modules/sound/mcu_mic_codec;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=mcumic;destsuffix=src/private/google-modules/sound/mcu_mic_codec \
+  ${AGM}/google-modules/amplifiers;protocol=https;branch=android-msm-eos-5.15-tm-wear-kr3-pixel-watch;name=amplifiers;destsuffix=src/private/google-modules/amplifiers \
   file://0001-audio-monaco-bind-haptics-codec-by-deterministic-MFD.patch \
   file://0002-icnss2-register-cnss-genl-family-for-ADRASTEA-too.patch \
   file://0003-bt-btpower-make-bt_clk_enable-idempotent.patch \
@@ -96,13 +96,14 @@ SRCREV_mcumic      = "94deec7a3e641a845ebe7468341e902d0d2304fa"
 SRCREV_amplifiers  = "06552df7596558c5b9b0fe1ad39fefc4ae116ef7"
 SRCREV_FORMAT = "audio_bt_dataipa_datarmnet_datarmnetext_display_graphics_mm_mmrm_securemsm_video_wlanplat_qcacld_qcacmn_wlanfwapi_socmsm_bms_nvttouch_nanohub_rotary_mcumic_amplifiers"
 
-S = "${WORKDIR}/git"
+S = "${UNPACKDIR}/src"
+
 
 # Build against the exact linux-aurora kernel (same clang + config → matching
 # vermagic/CRC/ABI). Use its shared build artifacts.  Host tools the kernel's
 # modules_prepare/prepare0 needs (meta-oe linux.inc built these for the kernel;
 # this recipe needs them too).
-DEPENDS += "virtual/kernel clang-native"
+DEPENDS += "virtual/kernel clang-native lld-native"
 DEPENDS += "bc-native bison-native flex-native openssl-native kmod-native rsync-native coreutils-native"
 do_configure[depends] += "virtual/kernel:do_shared_workdir"
 
@@ -183,8 +184,8 @@ KMOD_MAKE = "make -C ${KDIR} O=${KOUT} ARCH=arm64 LLVM=1 LLVM_IAS=1 \
 
 # do_package debug-split/strip uses recipe binutils; machine is armv7 →
 # defaults choke on the aarch64 .ko. Use clang/llvm-* + don't strip.
-OBJCOPY = "${LLVM_BIN}/llvm-objcopy"
-STRIP = "${LLVM_BIN}/llvm-strip"
+OBJCOPY:class-target = "${LLVM_BIN}/llvm-objcopy"
+STRIP:class-target = "${LLVM_BIN}/llvm-strip"
 INHIBIT_SYSROOT_STRIP = "1"
 
 do_configure[noexec] = "1"

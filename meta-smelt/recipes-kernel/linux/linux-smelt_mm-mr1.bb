@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -7,6 +7,11 @@ HOMEPAGE = "https://android.googlesource.com/"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 COMPATIBLE_MACHINE = "smelt"
+
+EXTRA_OEMAKE:append = " \
+    KCFLAGS+=' -std=gnu17' \
+    HOSTCFLAGS+=' -std=gnu17' \
+"
 
 SRC_URI = " git://android.googlesource.com/kernel/msm;branch=android-msm-smelt-3.10-marshmallow-mr1-wear-release;protocol=https \
     file://defconfig \
@@ -27,10 +32,20 @@ SRC_URI = " git://android.googlesource.com/kernel/msm;branch=android-msm-smelt-3
 "
 
 SRCREV = "49608c8bfc75360f7ac54f539ce326b90034bc9d"
-LINUX_VERSION ?= "3.10"
-PV = "${LINUX_VERSION}+marshmallow"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.10.40"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
+
+# The vendor tree carries EXTRAVERSION = -android@gpe, which the kernel
+# version sanity check demands in PV - but "@" cannot be used there.
+KERNEL_VERSION_SANITY_SKIP = "1"
+
+# symbol_why.py cannot analyse this vendor tree: kconfiglib chokes on
+# drivers/media/usb/stk1160/Kconfig:20 ("couldn't parse '.'").
+do_kernel_configcheck() {
+    :
+}
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

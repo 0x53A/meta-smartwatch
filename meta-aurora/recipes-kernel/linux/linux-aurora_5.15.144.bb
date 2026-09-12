@@ -14,6 +14,7 @@ SRC_URI = "git://gitlab.com/ubports/porting/community-ports/android13/google-eos
            file://sw5100.fragment \
            file://cmd-mod-file-func.patch \
            file://cc-o-c-respfile.patch \
+           file://modfinal-cc-o-c-respfile.patch \
            file://eud-secure-fail-nonfatal.patch \
            file://rtc-pm8xxx-read-only.patch \
            file://0001-video-fbdev-add-qcom-continuous-splash-framebuffer.patch"
@@ -21,7 +22,7 @@ SRCREV = "063840c5aae117bf0faac8b34fba0e37c9f619f8"
 require linux-aurora-version.inc
 LINUX_VERSION = "${AURORA_KERNEL_VERSION}"
 PV = "${AURORA_KERNEL_VERSION}+git${SRCPV}"
-S = "${WORKDIR}/git"
+S = "${UNPACKDIR}/${BP}"
 # Out-of-tree build (B != S). Qualcomm's vendor kernel relies on it:
 # scripts/Makefile.lib only adds `-I $(srctree)/$(src)` when
 # `building_out_of_srctree` (i.e. O= separate dir) — drivers like WALT
@@ -77,7 +78,7 @@ do_configure:prepend() {
 # STAGING_BINDIR_NATIVE; aarch64 host -> aarch64 kernel via clang --target,
 # with LLVM=1 LLVM_IAS=1 so the GNU CROSS_COMPILE is vestigial (no
 # gcc/binutils-cross needed).
-DEPENDS += "clang-native rsync-native"
+DEPENDS += "clang-native lld-native rsync-native"
 LLVM_BIN = "${STAGING_BINDIR_NATIVE}"
 PATH:prepend = "${STAGING_BINDIR_NATIVE}:"
 KERNEL_CC = "${LLVM_BIN}/clang --target=aarch64-linux-gnu -fuse-ld=lld"
@@ -103,10 +104,10 @@ EXTRA_OEMAKE:append = " KCFLAGS='-Wno-error -Wno-implicit-function-declaration -
 
 # do_package debug-split/strip uses recipe (not KERNEL_) binutils; the armv7
 # defaults choke on the aarch64 vmlinux/modules.
-OBJCOPY = "${LLVM_BIN}/llvm-objcopy"
-STRIP = "${LLVM_BIN}/llvm-strip"
-NM = "${LLVM_BIN}/llvm-nm"
-AR = "${LLVM_BIN}/llvm-ar"
+OBJCOPY:class-target = "${LLVM_BIN}/llvm-objcopy"
+STRIP:class-target = "${LLVM_BIN}/llvm-strip"
+NM:class-target = "${LLVM_BIN}/llvm-nm"
+AR:class-target = "${LLVM_BIN}/llvm-ar"
 
 # Bootloader supplies the DTB; boot.img is kernel-only (kernel has a built-in
 # CONFIG_CMDLINE). Emit only Image; repack off-line into the UBPorts boot.img

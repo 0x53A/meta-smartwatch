@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -7,6 +7,11 @@ HOMEPAGE = "https://android.googlesource.com/"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 COMPATIBLE_MACHINE = "wren"
+
+EXTRA_OEMAKE:append = " \
+    KCFLAGS+=' -std=gnu17' \
+    HOSTCFLAGS+=' -std=gnu17' \
+"
 
 SRC_URI = "git://android.googlesource.com/kernel/msm;branch=android-msm-wren-3.10-marshmallow-mr1-wear-release;protocol=https \
     file://0001-scripts-dtc-Remove-redundant-YYLOC-global-declaratio.patch \
@@ -35,10 +40,16 @@ SRC_URI = "git://android.googlesource.com/kernel/msm;branch=android-msm-wren-3.1
     file://defconfig \
     file://img_info "
 SRCREV = "00f21f748f01888888909f9f58280f5a363cd5f9"
-LINUX_VERSION ?= "3.10"
-PV = "${LINUX_VERSION}+marshmallow"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.10.40"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
+
+# symbol_why.py cannot analyse this vendor tree: kconfiglib chokes on
+# drivers/media/usb/stk1160/Kconfig:20 ("couldn't parse '.'").
+do_kernel_configcheck() {
+    :
+}
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 
 SECTION = "kernel"
 SUMMARY = "Android kernel for harmony"
@@ -6,6 +6,11 @@ HOMEPAGE = "https://github.com/OpenWatchProject/"
 LICENSE = "GPL-2.0-only"
 LIC_FILES_CHKSUM = "file://COPYING;md5=d7810fab7487fb0aad327b76f1be7cd7"
 COMPATIBLE_MACHINE = "harmony|inharmony"
+
+EXTRA_OEMAKE:append = " \
+    KCFLAGS+=' -std=gnu17' \
+    HOSTCFLAGS+=' -std=gnu17' \
+"
 
 SRC_URI = "git://github.com/OpenWatchProject/android_kernel_mediatek_mt6580;protocol=https;branch=android-8.1 \
     file://defconfig \
@@ -26,14 +31,22 @@ SRC_URI = "git://github.com/OpenWatchProject/android_kernel_mediatek_mt6580;prot
     file://0014-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch \
     file://0015-Don-t-make-int-to-pointer-cast-warning-fail-compilat.patch \
     file://0016-make-Don-t-fail-on-pointer-int-return-issues.patch \
+    file://0017-backports-Drop-the-trailing-slash-from-BACKPORT_DIR.patch \
+    file://0018-backports-Anchor-the-include-paths-to-srctree.patch \
     "
 SRC_URI:append:inharmony = "file://inharmonyconfig"
 
 SRCREV = "b1ebbe66774b96f03fb440860d328a119b7f9a6b"
-LINUX_VERSION ?= "3.10"
-PV = "${LINUX_VERSION}+lollipop"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.10.72"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
+
+# symbol_why.py cannot analyse this vendor tree: kconfiglib chokes on
+# drivers/media/usb/stk1160/Kconfig:20 ("couldn't parse '.'").
+do_kernel_configcheck() {
+    :
+}
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

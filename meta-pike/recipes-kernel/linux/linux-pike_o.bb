@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -22,10 +22,16 @@ SRC_URI = "git://android.googlesource.com/kernel/mediatek;branch=android-mediate
     file://defconfig \
     file://img_info"
 SRCREV = "5f7ba64dbb0f566149f5190db8c229da623a54bb"
-LINUX_VERSION ?= "3.10"
-PV = "${LINUX_VERSION}+oreo"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.10.57"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
+
+# symbol_why.py cannot analyse this vendor tree: kconfiglib chokes on
+# drivers/media/usb/stk1160/Kconfig:20 ("couldn't parse '.'").
+do_kernel_configcheck() {
+    :
+}
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

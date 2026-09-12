@@ -38,12 +38,15 @@ COMPATIBLE_MACHINE = "aurora"
 #  - initramfs-android-image: init_boot.img ramdisk content (cpio.gz).
 #  - mkbootimg-tools-native: provides ${STAGING_BINDIR_NATIVE}/mkbootimg
 #  - dtc-native: provides ${STAGING_BINDIR_NATIVE}/fdtput
+#  - lz4-native: provides lz4, used to compress the vendor_kernel_boot ramdisk
 DEPENDS = "\
     virtual/kernel \
     linux-aurora-modules \
     initramfs-android-image \
     mkbootimg-tools-native \
     dtc-native \
+    lz4-native \
+    clang-native \
 "
 do_compile[depends] += "\
     virtual/kernel:do_compile \
@@ -122,6 +125,19 @@ do_compile() {
         --symvers       "${LINUX_AURORA_SYMVERS}" \
         --static-dir    ${S}/static \
         --out           ${WORKDIR}/vkb_ramdisk
+
+    # ─── Step 2.5: strip debug info from aarch64 kernel modules ───
+    # This recipe runs in an armv7 context but the vendor kernel modules
+    # are aarch64 ELF. The default strip tool silently does nothing on a
+    # foreign ELF target, leaving full debug info in every .ko file.
+    # llvm-strip from clang-native is architecture-agnostic and correctly
+    # strips aarch64 ELF from any build context.
+    LLVM_STRIP=$(find ${STAGING_BINDIR_NATIVE} -name "llvm-strip" | head -1)
+    if [ -z "$LLVM_STRIP" ]; then
+        bbfatal "llvm-strip not found in ${STAGING_BINDIR_NATIVE} -- check clang-native is in DEPENDS"
+    fi
+    find ${WORKDIR}/vkb_ramdisk -name "*.ko" -exec "$LLVM_STRIP" --strip-debug {} \;
+    bbnote "stripped debug info from aarch64 kernel modules"
 
     # ─── Step 3: ramoops DTB. Base = static vkb-base.dtb (stock,
     #            bootloader-approved with qcom,msm-id + qcom,board-id

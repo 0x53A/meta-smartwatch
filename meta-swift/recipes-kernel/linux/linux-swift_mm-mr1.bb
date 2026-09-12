@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -16,10 +16,10 @@ SRC_URI = "git://android.googlesource.com/kernel/msm;branch=android-msm-swift-3.
     file://0004-ARM-8933-1-replace-Sun-Solaris-style-flag-on-section.patch \
     "
 SRCREV = "2f958570bcf7457da4827dc8da5ff3195d447cb3"
-LINUX_VERSION ?= "3.18"
-PV = "${LINUX_VERSION}+marshmallow"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.18.24"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig

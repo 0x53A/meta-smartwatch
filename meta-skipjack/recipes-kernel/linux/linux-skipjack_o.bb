@@ -1,4 +1,4 @@
-require recipes-kernel/linux/linux.inc
+require recipes-kernel/linux/linux-yocto.inc
 inherit gettext
 
 SECTION = "kernel"
@@ -25,10 +25,10 @@ SRC_URI = "git://android.googlesource.com/kernel/msm;branch=android-msm-skipjack
     file://defconfig \
     file://img_info"
 SRCREV = "f46a8c36f416d4245b13b451c36f36a0c690283d"
-LINUX_VERSION ?= "3.18"
-PV = "${LINUX_VERSION}+pie"
-S = "${WORKDIR}/git"
-B = "${S}"
+LINUX_VERSION ?= "3.18.24"
+LINUX_VERSION_EXTENSION = ""
+PE = "1"
+PV = "${LINUX_VERSION}+git${SRCPV}"
 
 do_configure:prepend() {
     install -m 644 -D ${UNPACKDIR}/defconfig ${WORKDIR}/defconfig
