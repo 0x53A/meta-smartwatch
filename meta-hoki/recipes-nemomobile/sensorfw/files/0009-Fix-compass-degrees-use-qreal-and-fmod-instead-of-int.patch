@@ -144,7 +144,7 @@ index 0d7419b..e6dbfd6 100644
          newOrientation.correctedDegrees_ += m_declinationCorrection.loadAcquire();
 -        newOrientation.correctedDegrees_ %= 360;
 +        newOrientation.correctedDegrees_ = fmod(newOrientation.correctedDegrees_, 360.0);
- //        sensordLogT() << "DeclinationFilter corrected degree " << newOrientation.degrees_ << " => " << newOrientation.correctedDegrees_ << ". Level: " << newOrientation.level_;
+ //        qCDebug(lcSensorFw) << "DeclinationFilter corrected degree " << newOrientation.degrees_ << " => " << newOrientation.correctedDegrees_ << ". Level: " << newOrientation.level_;
      }
      m_orientation = newOrientation;
 -- 

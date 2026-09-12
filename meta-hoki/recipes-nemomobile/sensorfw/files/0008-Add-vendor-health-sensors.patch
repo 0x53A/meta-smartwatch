@@ -303,27 +303,27 @@ index 0000000..0000001
 +bool HybrisRespirationRateAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisRespirationRateAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisRespirationRateAdaptor started";
 +    return true;
 +}
 +
 +void HybrisRespirationRateAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for Respiration rate sensor";
++    qCWarning(lcSensorFw) << "No initial data for Respiration rate sensor";
 +}
 +
 +void HybrisRespirationRateAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisRespirationRateAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisRespirationRateAdaptor stopped";
 +}
 +
 +void HybrisRespirationRateAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "RR RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "RR RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -400,7 +400,7 @@ index 0000000..0000001
 +
 +void HybrisRespirationRateAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybrisrradaptor";
++    qCDebug(lcSensorFw) << "registering hybrisrradaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisRespirationRateAdaptor>("rradaptor");
 +}
@@ -430,7 +430,7 @@ index 0000000..0000001
 +TARGET       = hybrisrradaptor
 +HEADERS += hybrisrradaptor.h hybrisrradaptorplugin.h
 +SOURCES += hybrisrradaptor.cpp hybrisrradaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -448,7 +448,7 @@ index 0000000..0000001
 +
 +void RespirationRatePlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering rrsensor";
++    qCDebug(lcSensorFw) << "registering rrsensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<RespirationRateSensorChannel>("rrsensor");
 +}
@@ -459,7 +459,7 @@ index 0000000..0000001
 +}
 +
 +QStringList RespirationRatePlugin::Dependencies() {
-+    return QString("rradaptor").split(":", QString::SkipEmptyParts);
++    return QString("rradaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/rrsensor/rrplugin.h b/sensors/rrsensor/rrplugin.h
 new file mode 100644
@@ -580,7 +580,7 @@ index 0000000..0000001
 +
 +bool RespirationRateSensorChannel::start()
 +{
-+    sensordLogD() << "Starting RespirationRateSensorChannel";
++    qCDebug(lcSensorFw) << "Starting RespirationRateSensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -591,7 +591,7 @@ index 0000000..0000001
 +
 +bool RespirationRateSensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping RespirationRateSensorChannel";
++    qCDebug(lcSensorFw) << "Stopping RespirationRateSensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();
@@ -813,27 +813,27 @@ index 0000000..0000001
 +bool HybrisWristTempAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisWristTempAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisWristTempAdaptor started";
 +    return true;
 +}
 +
 +void HybrisWristTempAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for On-wrist temperature sensor";
++    qCWarning(lcSensorFw) << "No initial data for On-wrist temperature sensor";
 +}
 +
 +void HybrisWristTempAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisWristTempAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisWristTempAdaptor stopped";
 +}
 +
 +void HybrisWristTempAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "WRISTTEMP RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "WRISTTEMP RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -910,7 +910,7 @@ index 0000000..0000001
 +
 +void HybrisWristTempAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybriswristtempadaptor";
++    qCDebug(lcSensorFw) << "registering hybriswristtempadaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisWristTempAdaptor>("wristtempadaptor");
 +}
@@ -940,7 +940,7 @@ index 0000000..0000001
 +TARGET       = hybriswristtempadaptor
 +HEADERS += hybriswristtempadaptor.h hybriswristtempadaptorplugin.h
 +SOURCES += hybriswristtempadaptor.cpp hybriswristtempadaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -958,7 +958,7 @@ index 0000000..0000001
 +
 +void WristTempPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering wristtempsensor";
++    qCDebug(lcSensorFw) << "registering wristtempsensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<WristTempSensorChannel>("wristtempsensor");
 +}
@@ -969,7 +969,7 @@ index 0000000..0000001
 +}
 +
 +QStringList WristTempPlugin::Dependencies() {
-+    return QString("wristtempadaptor").split(":", QString::SkipEmptyParts);
++    return QString("wristtempadaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/wristtempsensor/wristtempplugin.h b/sensors/wristtempsensor/wristtempplugin.h
 new file mode 100644
@@ -1090,7 +1090,7 @@ index 0000000..0000001
 +
 +bool WristTempSensorChannel::start()
 +{
-+    sensordLogD() << "Starting WristTempSensorChannel";
++    qCDebug(lcSensorFw) << "Starting WristTempSensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -1101,7 +1101,7 @@ index 0000000..0000001
 +
 +bool WristTempSensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping WristTempSensorChannel";
++    qCDebug(lcSensorFw) << "Stopping WristTempSensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();
@@ -1323,27 +1323,27 @@ index 0000000..0000001
 +bool HybrisOffBodyAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisOffBodyAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisOffBodyAdaptor started";
 +    return true;
 +}
 +
 +void HybrisOffBodyAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for Off-body detection sensor";
++    qCWarning(lcSensorFw) << "No initial data for Off-body detection sensor";
 +}
 +
 +void HybrisOffBodyAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisOffBodyAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisOffBodyAdaptor stopped";
 +}
 +
 +void HybrisOffBodyAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "OFFBODY RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "OFFBODY RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -1420,7 +1420,7 @@ index 0000000..0000001
 +
 +void HybrisOffBodyAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybrisoffbodyadaptor";
++    qCDebug(lcSensorFw) << "registering hybrisoffbodyadaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisOffBodyAdaptor>("offbodyadaptor");
 +}
@@ -1450,7 +1450,7 @@ index 0000000..0000001
 +TARGET       = hybrisoffbodyadaptor
 +HEADERS += hybrisoffbodyadaptor.h hybrisoffbodyadaptorplugin.h
 +SOURCES += hybrisoffbodyadaptor.cpp hybrisoffbodyadaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -1468,7 +1468,7 @@ index 0000000..0000001
 +
 +void OffBodyPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering offbodysensor";
++    qCDebug(lcSensorFw) << "registering offbodysensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<OffBodySensorChannel>("offbodysensor");
 +}
@@ -1479,7 +1479,7 @@ index 0000000..0000001
 +}
 +
 +QStringList OffBodyPlugin::Dependencies() {
-+    return QString("offbodyadaptor").split(":", QString::SkipEmptyParts);
++    return QString("offbodyadaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/offbodysensor/offbodyplugin.h b/sensors/offbodysensor/offbodyplugin.h
 new file mode 100644
@@ -1600,7 +1600,7 @@ index 0000000..0000001
 +
 +bool OffBodySensorChannel::start()
 +{
-+    sensordLogD() << "Starting OffBodySensorChannel";
++    qCDebug(lcSensorFw) << "Starting OffBodySensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -1611,7 +1611,7 @@ index 0000000..0000001
 +
 +bool OffBodySensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping OffBodySensorChannel";
++    qCDebug(lcSensorFw) << "Stopping OffBodySensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();
@@ -1833,27 +1833,27 @@ index 0000000..0000001
 +bool HybrisRawPpgAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisRawPpgAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisRawPpgAdaptor started";
 +    return true;
 +}
 +
 +void HybrisRawPpgAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for Raw PPG waveform sensor";
++    qCWarning(lcSensorFw) << "No initial data for Raw PPG waveform sensor";
 +}
 +
 +void HybrisRawPpgAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisRawPpgAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisRawPpgAdaptor stopped";
 +}
 +
 +void HybrisRawPpgAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "RAWPPG RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "RAWPPG RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -1930,7 +1930,7 @@ index 0000000..0000001
 +
 +void HybrisRawPpgAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybrisrawppgadaptor";
++    qCDebug(lcSensorFw) << "registering hybrisrawppgadaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisRawPpgAdaptor>("rawppgadaptor");
 +}
@@ -1960,7 +1960,7 @@ index 0000000..0000001
 +TARGET       = hybrisrawppgadaptor
 +HEADERS += hybrisrawppgadaptor.h hybrisrawppgadaptorplugin.h
 +SOURCES += hybrisrawppgadaptor.cpp hybrisrawppgadaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -1978,7 +1978,7 @@ index 0000000..0000001
 +
 +void RawPpgPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering rawppgsensor";
++    qCDebug(lcSensorFw) << "registering rawppgsensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<RawPpgSensorChannel>("rawppgsensor");
 +}
@@ -1989,7 +1989,7 @@ index 0000000..0000001
 +}
 +
 +QStringList RawPpgPlugin::Dependencies() {
-+    return QString("rawppgadaptor").split(":", QString::SkipEmptyParts);
++    return QString("rawppgadaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/rawppgsensor/rawppgplugin.h b/sensors/rawppgsensor/rawppgplugin.h
 new file mode 100644
@@ -2110,7 +2110,7 @@ index 0000000..0000001
 +
 +bool RawPpgSensorChannel::start()
 +{
-+    sensordLogD() << "Starting RawPpgSensorChannel";
++    qCDebug(lcSensorFw) << "Starting RawPpgSensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -2121,7 +2121,7 @@ index 0000000..0000001
 +
 +bool RawPpgSensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping RawPpgSensorChannel";
++    qCDebug(lcSensorFw) << "Stopping RawPpgSensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();
@@ -2343,27 +2343,27 @@ index 0000000..0000001
 +bool HybrisCaloriesAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisCaloriesAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisCaloriesAdaptor started";
 +    return true;
 +}
 +
 +void HybrisCaloriesAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for Calorie estimation sensor";
++    qCWarning(lcSensorFw) << "No initial data for Calorie estimation sensor";
 +}
 +
 +void HybrisCaloriesAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisCaloriesAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisCaloriesAdaptor stopped";
 +}
 +
 +void HybrisCaloriesAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "CALORIES RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "CALORIES RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -2440,7 +2440,7 @@ index 0000000..0000001
 +
 +void HybrisCaloriesAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybriscaloriesadaptor";
++    qCDebug(lcSensorFw) << "registering hybriscaloriesadaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisCaloriesAdaptor>("caloriesadaptor");
 +}
@@ -2470,7 +2470,7 @@ index 0000000..0000001
 +TARGET       = hybriscaloriesadaptor
 +HEADERS += hybriscaloriesadaptor.h hybriscaloriesadaptorplugin.h
 +SOURCES += hybriscaloriesadaptor.cpp hybriscaloriesadaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -2488,7 +2488,7 @@ index 0000000..0000001
 +
 +void CaloriesPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering caloriessensor";
++    qCDebug(lcSensorFw) << "registering caloriessensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<CaloriesSensorChannel>("caloriessensor");
 +}
@@ -2499,7 +2499,7 @@ index 0000000..0000001
 +}
 +
 +QStringList CaloriesPlugin::Dependencies() {
-+    return QString("caloriesadaptor").split(":", QString::SkipEmptyParts);
++    return QString("caloriesadaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/caloriessensor/caloriesplugin.h b/sensors/caloriessensor/caloriesplugin.h
 new file mode 100644
@@ -2620,7 +2620,7 @@ index 0000000..0000001
 +
 +bool CaloriesSensorChannel::start()
 +{
-+    sensordLogD() << "Starting CaloriesSensorChannel";
++    qCDebug(lcSensorFw) << "Starting CaloriesSensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -2631,7 +2631,7 @@ index 0000000..0000001
 +
 +bool CaloriesSensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping CaloriesSensorChannel";
++    qCDebug(lcSensorFw) << "Stopping CaloriesSensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();
@@ -2853,27 +2853,27 @@ index 0000000..0000001
 +bool HybrisDailyRhrAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisDailyRhrAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisDailyRhrAdaptor started";
 +    return true;
 +}
 +
 +void HybrisDailyRhrAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for Daily resting heart rate sensor";
++    qCWarning(lcSensorFw) << "No initial data for Daily resting heart rate sensor";
 +}
 +
 +void HybrisDailyRhrAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisDailyRhrAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisDailyRhrAdaptor stopped";
 +}
 +
 +void HybrisDailyRhrAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "DAILYRHR RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "DAILYRHR RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -2950,7 +2950,7 @@ index 0000000..0000001
 +
 +void HybrisDailyRhrAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybrisdailyrhradaptor";
++    qCDebug(lcSensorFw) << "registering hybrisdailyrhradaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisDailyRhrAdaptor>("dailyrhradaptor");
 +}
@@ -2980,7 +2980,7 @@ index 0000000..0000001
 +TARGET       = hybrisdailyrhradaptor
 +HEADERS += hybrisdailyrhradaptor.h hybrisdailyrhradaptorplugin.h
 +SOURCES += hybrisdailyrhradaptor.cpp hybrisdailyrhradaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -2998,7 +2998,7 @@ index 0000000..0000001
 +
 +void DailyRhrPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering dailyrhrsensor";
++    qCDebug(lcSensorFw) << "registering dailyrhrsensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<DailyRhrSensorChannel>("dailyrhrsensor");
 +}
@@ -3009,7 +3009,7 @@ index 0000000..0000001
 +}
 +
 +QStringList DailyRhrPlugin::Dependencies() {
-+    return QString("dailyrhradaptor").split(":", QString::SkipEmptyParts);
++    return QString("dailyrhradaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/dailyrhrsensor/dailyrhrplugin.h b/sensors/dailyrhrsensor/dailyrhrplugin.h
 new file mode 100644
@@ -3130,7 +3130,7 @@ index 0000000..0000001
 +
 +bool DailyRhrSensorChannel::start()
 +{
-+    sensordLogD() << "Starting DailyRhrSensorChannel";
++    qCDebug(lcSensorFw) << "Starting DailyRhrSensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -3141,7 +3141,7 @@ index 0000000..0000001
 +
 +bool DailyRhrSensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping DailyRhrSensorChannel";
++    qCDebug(lcSensorFw) << "Stopping DailyRhrSensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();
@@ -3363,27 +3363,27 @@ index 0000000..0000001
 +bool HybrisBasalRhrAdaptor::startSensor()
 +{
 +    if (!(HybrisAdaptor::startSensor())) return false;
-+    sensordLogD() << "HybrisBasalRhrAdaptor started";
++    qCDebug(lcSensorFw) << "HybrisBasalRhrAdaptor started";
 +    return true;
 +}
 +
 +void HybrisBasalRhrAdaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for Basal resting heart rate sensor";
++    qCWarning(lcSensorFw) << "No initial data for Basal resting heart rate sensor";
 +}
 +
 +void HybrisBasalRhrAdaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisBasalRhrAdaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisBasalRhrAdaptor stopped";
 +}
 +
 +void HybrisBasalRhrAdaptor::processSample(const sensors_event_t& data)
 +{
-+    sensordLogW() << "BASALRHR RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "BASALRHR RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3]
@@ -3460,7 +3460,7 @@ index 0000000..0000001
 +
 +void HybrisBasalRhrAdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybrisbasalrhradaptor";
++    qCDebug(lcSensorFw) << "registering hybrisbasalrhradaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisBasalRhrAdaptor>("basalrhradaptor");
 +}
@@ -3490,7 +3490,7 @@ index 0000000..0000001
 +TARGET       = hybrisbasalrhradaptor
 +HEADERS += hybrisbasalrhradaptor.h hybrisbasalrhradaptorplugin.h
 +SOURCES += hybrisbasalrhradaptor.cpp hybrisbasalrhradaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +include( ../adaptor-config.pri )
 +config_hybris {
 +    PKGCONFIG += android-headers
@@ -3508,7 +3508,7 @@ index 0000000..0000001
 +
 +void BasalRhrPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering basalrhrsensor";
++    qCDebug(lcSensorFw) << "registering basalrhrsensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<BasalRhrSensorChannel>("basalrhrsensor");
 +}
@@ -3519,7 +3519,7 @@ index 0000000..0000001
 +}
 +
 +QStringList BasalRhrPlugin::Dependencies() {
-+    return QString("basalrhradaptor").split(":", QString::SkipEmptyParts);
++    return QString("basalrhradaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/basalrhrsensor/basalrhrplugin.h b/sensors/basalrhrsensor/basalrhrplugin.h
 new file mode 100644
@@ -3640,7 +3640,7 @@ index 0000000..0000001
 +
 +bool BasalRhrSensorChannel::start()
 +{
-+    sensordLogD() << "Starting BasalRhrSensorChannel";
++    qCDebug(lcSensorFw) << "Starting BasalRhrSensorChannel";
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
 +        filterBin_->start();
@@ -3651,7 +3651,7 @@ index 0000000..0000001
 +
 +bool BasalRhrSensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping BasalRhrSensorChannel";
++    qCDebug(lcSensorFw) << "Stopping BasalRhrSensorChannel";
 +    if (AbstractSensorChannel::stop()) {
 +        adaptor_->stopSensor();
 +        filterBin_->stop();

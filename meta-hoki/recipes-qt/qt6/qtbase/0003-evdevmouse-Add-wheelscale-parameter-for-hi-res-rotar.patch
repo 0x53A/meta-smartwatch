@@ -20,28 +20,28 @@ Usage:
 Upstream-Status: Pending
 
 ---
- .../input/evdevmouse/qevdevmousehandler.cpp   | 29 +++++++++++++++------
- .../input/evdevmouse/qevdevmousehandler_p.h   |  6 ++++-
- 2 files changed, 27 insertions(+), 8 deletions(-)
+ .../input/evdevmouse/qevdevmousehandler.cpp   | 27 +++++++++++++++------
+ .../input/evdevmouse/qevdevmousehandler_p.h   |  5 ++++-
+ 2 files changed, 24 insertions(+), 8 deletions(-)
 
 --- a/src/platformsupport/input/evdevmouse/qevdevmousehandler.cpp
 +++ b/src/platformsupport/input/evdevmouse/qevdevmousehandler.cpp
-@@ -74,6 +74,7 @@
+@@ -40,6 +40,7 @@
      int jitterLimit = 0;
      int grab = 0;
      bool abs = false;
 +    int wheelScale = 1;
-
-     const auto args = specification.splitRef(QLatin1Char(':'));
-     for (const QStringRef &arg : args) {
-@@ -85,21 +86,24 @@
+ 
+     const auto args = QStringView{specification}.split(u':');
+     for (const auto &arg : args) {
+@@ -51,21 +52,24 @@
              grab = arg.mid(5).toInt();
-         else if (arg == QLatin1String("abs"))
+         else if (arg == "abs"_L1)
              abs = true;
 +        else if (arg.startsWith(QLatin1String("wheelscale=")))
 +            wheelScale = qMax(1, arg.mid(11).toInt());
      }
-
+ 
      int fd;
      fd = qt_safe_open(device.toLocal8Bit().constData(), O_RDONLY | O_NDELAY, 0);
      if (fd >= 0) {
@@ -53,16 +53,16 @@ Upstream-Status: Pending
          return nullptr;
      }
  }
-
+ 
 -QEvdevMouseHandler::QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit)
 -    : m_device(device), m_fd(fd), m_abs(abs), m_compression(compression)
 +QEvdevMouseHandler::QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit, int wheelScale)
 +    : m_device(device), m_fd(fd), m_abs(abs), m_compression(compression),
 +      m_wheelScale(wheelScale)
  {
-     setObjectName(QLatin1String("Evdev Mouse Handler"));
-
-@@ -266,8 +270,13 @@
+     setObjectName("Evdev Mouse Handler"_L1);
+ 
+@@ -232,8 +236,13 @@
                  posChanged = true;
              } else if (!m_hiResWheel && data->code == REL_WHEEL) {
                  // data->value: positive == up, negative == down
@@ -78,7 +78,7 @@ Upstream-Status: Pending
  #ifdef REL_WHEEL_HI_RES
              } else if (data->code == REL_WHEEL_HI_RES) {
                  delta.setY(data->value);
-@@ -275,8 +284,13 @@
+@@ -241,8 +250,13 @@
  #endif
              } else if (!m_hiResHWheel && data->code == REL_HWHEEL) {
                  // data->value: positive == right, negative == left
@@ -96,16 +96,16 @@ Upstream-Status: Pending
                  delta.setX(-data->value);
 --- a/src/platformsupport/input/evdevmouse/qevdevmousehandler_p.h
 +++ b/src/platformsupport/input/evdevmouse/qevdevmousehandler_p.h
-@@ -77,7 +77,7 @@
+@@ -46,7 +46,7 @@
      void handleWheelEvent(QPoint delta);
-
+ 
  private:
 -    QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit);
 +    QEvdevMouseHandler(const QString &device, int fd, bool abs, bool compression, int jitterLimit, int wheelScale = 1);
-
+ 
      void sendMouseEvent();
-     bool getHardwareMaximum();
-@@ -101,6 +101,9 @@
+ #ifndef Q_OS_VXWORKS
+@@ -72,6 +72,9 @@
      int m_hardwareHeight;
      qreal m_hardwareScalerY;
      qreal m_hardwareScalerX;
@@ -113,5 +113,5 @@ Upstream-Status: Pending
 +    int m_wheelAccumX = 0;
 +    int m_wheelAccumY = 0;
  };
-
+ 
  QT_END_NAMESPACE

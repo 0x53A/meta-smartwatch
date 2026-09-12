@@ -14,49 +14,11 @@ Upstream-Status: Inappropriate
 
 Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
 ---
- adaptors/adaptors.pro                              |   3 +-
- adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp   | 117 ++++++++++++++++++++
- adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h     |  62 ++++++++++
- adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro   |  13 +++
- adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp | 31 ++++++
- adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h   | 34 ++++++
- config/20-sensors-default.conf                     |   1 +
- config/sensord-hybris.conf                         |   1 +
- datatypes/datatypes.pro                            |   7 +-
- datatypes/spo2.cpp                                 |  34 ++++++
- datatypes/spo2.h                                   |  84 ++++++++++++++++
- datatypes/spo2data.h                               |  48 +++++++++
- datatypes/utils.cpp                                |   3 +
- sensors/sensors.pro                                |   3 +-
- sensors/spo2sensor/spo2plugin.cpp                  |  39 +++++++
- sensors/spo2sensor/spo2plugin.h                    |  36 ++++++
- sensors/spo2sensor/spo2sensor.cpp                  | 115 ++++++++++++++++++
- sensors/spo2sensor/spo2sensor.h                    |  79 ++++++++++++++
- sensors/spo2sensor/spo2sensor.pro                  |  14 ++
- sensors/spo2sensor/spo2sensor_a.cpp                |  31 ++++++
- sensors/spo2sensor/spo2sensor_a.h                  |  45 ++++++++
- 21 files changed, 798 insertions(+), 2 deletions(-)
- create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp
- create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h
- create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro
- create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp
- create mode 100644 adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h
- create mode 100644 datatypes/spo2.cpp
- create mode 100644 datatypes/spo2.h
- create mode 100644 datatypes/spo2data.h
- create mode 100644 sensors/spo2sensor/spo2plugin.cpp
- create mode 100644 sensors/spo2sensor/spo2plugin.h
- create mode 100644 sensors/spo2sensor/spo2sensor.cpp
- create mode 100644 sensors/spo2sensor/spo2sensor.h
- create mode 100644 sensors/spo2sensor/spo2sensor.pro
- create mode 100644 sensors/spo2sensor/spo2sensor_a.cpp
- create mode 100644 sensors/spo2sensor/spo2sensor_a.h
-
 diff --git a/adaptors/adaptors.pro b/adaptors/adaptors.pro
-index d8d5fbe..311e76e 100644
+index 17dd2bf..2ddf55f 100644
 --- a/adaptors/adaptors.pro
 +++ b/adaptors/adaptors.pro
-@@ -13,7 +13,8 @@ HYBRIS_SUBDIRS = hybrisaccelerometer \
+@@ -14,7 +14,8 @@ HYBRIS_SUBDIRS = hybrisaccelerometer \
                   hybrisgeorotationadaptor \
                   hybrisstepcounteradaptor \
                   hybrishrmadaptor \
@@ -68,7 +30,7 @@ index d8d5fbe..311e76e 100644
  contains(CONFIG,hybris) {
 diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp
 new file mode 100644
-index 0000000..0000001
+index 0000000..1e24416
 --- /dev/null
 +++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.cpp
 @@ -0,0 +1,117 @@
@@ -119,19 +81,19 @@ index 0000000..0000001
 +{
 +    if (!(HybrisAdaptor::startSensor()))
 +        return false;
-+    sensordLogD() << "HybrisSpo2Adaptor started";
++    qCDebug(lcSensorFw) << "HybrisSpo2Adaptor started";
 +    return true;
 +}
 +
 +void HybrisSpo2Adaptor::sendInitialData()
 +{
-+    sensordLogW() << "No initial data for SpO2 sensor";
++    qCWarning(lcSensorFw) << "No initial data for SpO2 sensor";
 +}
 +
 +void HybrisSpo2Adaptor::stopSensor()
 +{
 +    HybrisAdaptor::stopSensor();
-+    sensordLogD() << "HybrisSpo2Adaptor stopped";
++    qCDebug(lcSensorFw) << "HybrisSpo2Adaptor stopped";
 +}
 +
 +void HybrisSpo2Adaptor::processSample(const sensors_event_t& data)
@@ -139,22 +101,22 @@ index 0000000..0000001
 +    // DEBUG: Dump all float data fields to discover the vendor event format.
 +    // The LifeQ SpO2 vendor sensor (type 65561) uses the generic data[16] union.
 +    // Once we know the layout, we can remove this debug logging.
-+    sensordLogW() << "SPO2 RAW EVENT: type=" << data.type
++    qCWarning(lcSensorFw) << "SPO2 RAW EVENT: type=" << data.type
 +                  << " sensor=" << data.sensor
 +                  << " timestamp=" << data.timestamp;
-+    sensordLogW() << "  data[0]=" << data.u.data[0]
++    qCWarning(lcSensorFw) << "  data[0]=" << data.u.data[0]
 +                  << " data[1]=" << data.u.data[1]
 +                  << " data[2]=" << data.u.data[2]
 +                  << " data[3]=" << data.u.data[3];
-+    sensordLogW() << "  data[4]=" << data.u.data[4]
++    qCWarning(lcSensorFw) << "  data[4]=" << data.u.data[4]
 +                  << " data[5]=" << data.u.data[5]
 +                  << " data[6]=" << data.u.data[6]
 +                  << " data[7]=" << data.u.data[7];
-+    sensordLogW() << "  data[8]=" << data.u.data[8]
++    qCWarning(lcSensorFw) << "  data[8]=" << data.u.data[8]
 +                  << " data[9]=" << data.u.data[9]
 +                  << " data[10]=" << data.u.data[10]
 +                  << " data[11]=" << data.u.data[11];
-+    sensordLogW() << "  data[12]=" << data.u.data[12]
++    qCWarning(lcSensorFw) << "  data[12]=" << data.u.data[12]
 +                  << " data[13]=" << data.u.data[13]
 +                  << " data[14]=" << data.u.data[14]
 +                  << " data[15]=" << data.u.data[15];
@@ -191,7 +153,7 @@ index 0000000..0000001
 +}
 diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h
 new file mode 100644
-index 0000000..0000002
+index 0000000..6734f50
 --- /dev/null
 +++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.h
 @@ -0,0 +1,62 @@
@@ -259,7 +221,7 @@ index 0000000..0000002
 +#endif
 diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro
 new file mode 100644
-index 0000000..0000003
+index 0000000..f89576c
 --- /dev/null
 +++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptor.pro
 @@ -0,0 +1,13 @@
@@ -270,7 +232,7 @@ index 0000000..0000003
 +
 +SOURCES += hybrisspo2adaptor.cpp \
 +           hybrisspo2adaptorplugin.cpp
-+LIBS+= -L../../core -lhybrissensorfw-qt5
++LIBS+= -L../../core -lhybrissensorfw-qt6
 +
 +include( ../adaptor-config.pri )
 +config_hybris {
@@ -278,7 +240,7 @@ index 0000000..0000003
 +}
 diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp
 new file mode 100644
-index 0000000..0000004
+index 0000000..543c90f
 --- /dev/null
 +++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.cpp
 @@ -0,0 +1,31 @@
@@ -308,14 +270,14 @@ index 0000000..0000004
 +
 +void HybrisSpo2AdaptorPlugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering hybrisspo2adaptor";
++    qCDebug(lcSensorFw) << "registering hybrisspo2adaptor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerDeviceAdaptor<HybrisSpo2Adaptor>("spo2adaptor");
 +}
 +
 diff --git a/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h
 new file mode 100644
-index 0000000..0000005
+index 0000000..59518e8
 --- /dev/null
 +++ b/adaptors/hybrisspo2adaptor/hybrisspo2adaptorplugin.h
 @@ -0,0 +1,34 @@
@@ -354,7 +316,7 @@ index 0000000..0000005
 +
 +#endif
 diff --git a/config/20-sensors-default.conf b/config/20-sensors-default.conf
-index 4439764..694d5cb 100644
+index a51e81e..e906eee 100644
 --- a/config/20-sensors-default.conf
 +++ b/config/20-sensors-default.conf
 @@ -44,6 +44,7 @@ rotationsensor=True
@@ -366,11 +328,11 @@ index 4439764..694d5cb 100644
  ; To avoid revisiting config files for all old ports in the future, the
  ; defaults for added sensors should be set "False" by default here, and
 diff --git a/config/sensord-hybris.conf b/config/sensord-hybris.conf
-index c596172..271d3ba 100644
+index 2a734c9..f8ef453 100644
 --- a/config/sensord-hybris.conf
 +++ b/config/sensord-hybris.conf
-@@ -9,6 +9,7 @@ stepcounteradaptor = hybrisstepcounteradaptor
- pressureadaptor = hybrispressureadaptor
+@@ -10,6 +10,7 @@ pressureadaptor = hybrispressureadaptor
+ wakeupadaptor = hybriswakeupadaptor
  hrmadaptor = hybrishrmadaptor
  wristgestureadaptor = hybriswristgestureadaptor
 +spo2adaptor = hybrisspo2adaptor
@@ -404,7 +366,7 @@ index 23d7b89..21ed4c9 100644
  publicheaders.path  = $${publicheaders.path}/datatypes
 diff --git a/datatypes/spo2.cpp b/datatypes/spo2.cpp
 new file mode 100644
-index 0000000..0000006
+index 0000000..613a5e9
 --- /dev/null
 +++ b/datatypes/spo2.cpp
 @@ -0,0 +1,34 @@
@@ -444,7 +406,7 @@ index 0000000..0000006
 +}
 diff --git a/datatypes/spo2.h b/datatypes/spo2.h
 new file mode 100644
-index 0000000..0000007
+index 0000000..8a278ba
 --- /dev/null
 +++ b/datatypes/spo2.h
 @@ -0,0 +1,90 @@
@@ -540,7 +502,7 @@ index 0000000..0000007
 +#endif // SPO2_H
 diff --git a/datatypes/spo2data.h b/datatypes/spo2data.h
 new file mode 100644
-index 0000000..0000008
+index 0000000..7df388d
 --- /dev/null
 +++ b/datatypes/spo2data.h
 @@ -0,0 +1,48 @@
@@ -593,7 +555,7 @@ index 0000000..0000008
 +
 +#endif // SPO2DATA_H
 diff --git a/datatypes/utils.cpp b/datatypes/utils.cpp
-index 6a64346..31a70a9 100644
+index 6a64346..5ff79e7 100644
 --- a/datatypes/utils.cpp
 +++ b/datatypes/utils.cpp
 @@ -34,6 +34,7 @@
@@ -613,10 +575,10 @@ index 6a64346..31a70a9 100644
      qRegisterMetaType<PoseData>();
      qRegisterMetaType<Proximity>();
 diff --git a/sensors/sensors.pro b/sensors/sensors.pro
-index 52197f5..e2c364c 100644
+index b369191..5f6066f 100644
 --- a/sensors/sensors.pro
 +++ b/sensors/sensors.pro
-@@ -18,6 +18,7 @@ SUBDIRS  = accelerometersensor \
+@@ -19,6 +19,7 @@ SUBDIRS  = accelerometersensor \
             temperaturesensor \
             stepcountersensor \
             hrmsensor \
@@ -627,7 +589,7 @@ index 52197f5..e2c364c 100644
  contextprovider:SUBDIRS += contextplugin
 diff --git a/sensors/spo2sensor/spo2plugin.cpp b/sensors/spo2sensor/spo2plugin.cpp
 new file mode 100644
-index 0000000..0000009
+index 0000000..0d1dd36
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2plugin.cpp
 @@ -0,0 +1,39 @@
@@ -657,7 +619,7 @@ index 0000000..0000009
 +
 +void Spo2Plugin::Register(class Loader&)
 +{
-+    sensordLogD() << "registering spo2sensor";
++    qCDebug(lcSensorFw) << "registering spo2sensor";
 +    SensorManager& sm = SensorManager::instance();
 +    sm.registerSensor<Spo2SensorChannel>("spo2sensor");
 +}
@@ -668,11 +630,11 @@ index 0000000..0000009
 +}
 +
 +QStringList Spo2Plugin::Dependencies() {
-+    return QString("spo2adaptor").split(":", QString::SkipEmptyParts);
++    return QString("spo2adaptor").split(":", Qt::SkipEmptyParts);
 +}
 diff --git a/sensors/spo2sensor/spo2plugin.h b/sensors/spo2sensor/spo2plugin.h
 new file mode 100644
-index 0000000..0000010
+index 0000000..19a6f80
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2plugin.h
 @@ -0,0 +1,36 @@
@@ -714,7 +676,7 @@ index 0000000..0000010
 +#endif // SPO2PLUGIN_H
 diff --git a/sensors/spo2sensor/spo2sensor.cpp b/sensors/spo2sensor/spo2sensor.cpp
 new file mode 100644
-index 0000000..0000011
+index 0000000..ccd6930
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2sensor.cpp
 @@ -0,0 +1,115 @@
@@ -802,7 +764,7 @@ index 0000000..0000011
 +
 +bool Spo2SensorChannel::start()
 +{
-+    sensordLogD() << "Starting Spo2SensorChannel";
++    qCDebug(lcSensorFw) << "Starting Spo2SensorChannel";
 +
 +    if (AbstractSensorChannel::start()) {
 +        marshallingBin_->start();
@@ -814,7 +776,7 @@ index 0000000..0000011
 +
 +bool Spo2SensorChannel::stop()
 +{
-+    sensordLogD() << "Stopping Spo2SensorChannel";
++    qCDebug(lcSensorFw) << "Stopping Spo2SensorChannel";
 +
 +    if (AbstractSensorChannel::stop()) {
 +        spo2Adaptor_->stopSensor();
@@ -835,7 +797,7 @@ index 0000000..0000011
 +}
 diff --git a/sensors/spo2sensor/spo2sensor.h b/sensors/spo2sensor/spo2sensor.h
 new file mode 100644
-index 0000000..0000012
+index 0000000..b644f24
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2sensor.h
 @@ -0,0 +1,79 @@
@@ -920,7 +882,7 @@ index 0000000..0000012
 +#endif // SPO2SENSOR_CHANNEL_H
 diff --git a/sensors/spo2sensor/spo2sensor.pro b/sensors/spo2sensor/spo2sensor.pro
 new file mode 100644
-index 0000000..0000013
+index 0000000..3d6ca75
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2sensor.pro
 @@ -0,0 +1,14 @@
@@ -940,7 +902,7 @@ index 0000000..0000013
 +include( ../sensor-config.pri )
 diff --git a/sensors/spo2sensor/spo2sensor_a.cpp b/sensors/spo2sensor/spo2sensor_a.cpp
 new file mode 100644
-index 0000000..0000014
+index 0000000..0fd24a8
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2sensor_a.cpp
 @@ -0,0 +1,31 @@
@@ -977,7 +939,7 @@ index 0000000..0000014
 +}
 diff --git a/sensors/spo2sensor/spo2sensor_a.h b/sensors/spo2sensor/spo2sensor_a.h
 new file mode 100644
-index 0000000..0000015
+index 0000000..58f6ba4
 --- /dev/null
 +++ b/sensors/spo2sensor/spo2sensor_a.h
 @@ -0,0 +1,45 @@
@@ -1026,5 +988,5 @@ index 0000000..0000015
 +};
 +
 +#endif // SPO2SENSOR_A_H
---
+-- 
 2.34.1
