@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Fri, 14 Mar 2026 12:00:00 +0100
 Subject: [PATCH] Fix NULL adapter deref in hdd_process_bt_sco_profile
 
@@ -16,9 +16,17 @@ there is no WiFi session to coordinate with BT yet.
 This allows loading wlan.ko while Bluetooth is running, enabling
 WiFi+BT co-existence on devices with shared WCNSS/Pronto radio.
 
-Upstream-Status: Inappropriate [bug in vendor fork, not upstream]
+This is also present in Qualcomm's Prima source, not specific to the
+Dev-msm8953 fork: CodeLinaro branch LA.UM.10.6.2.c25 at
+59c365996ee6c0831ee06fe7e9a6b93351cfd546 contains the same dereference
+before assignment in hdd_process_bt_sco_profile(). The defect already
+appears in the original SCO handler added by Qualcomm commit
+7e7cdeb27a2372e8fb911121a3e630ed45f337c4 (2020-09-17).
 
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Source: https://git.codelinaro.org/clo/la/platform/vendor/qcom-opensource/wlan/prima/-/blob/59c365996ee6c0831ee06fe7e9a6b93351cfd546/CORE/HDD/src/wlan_hdd_main.c
+Upstream-Status: Pending
+
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  CORE/HDD/src/wlan_hdd_main.c | 14 +++++++-------
  1 file changed, 7 insertions(+), 7 deletions(-)

@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Fri, 21 Mar 2026 00:00:00 +0100
 Subject: [PATCH] rtc: qpnp: Sysfs-gated set_time with diagnostic logging
 
@@ -15,7 +15,7 @@ To test manually after boot:
 Each SPMI write in set_time is logged with pr_err for diagnosis.
 
 Upstream-Status: Inappropriate [temporary debug patch]
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  drivers/rtc/qpnp-rtc.c | 76 +++++++++++++++++++++++++++++++++++++++++
  1 file changed, 76 insertions(+)

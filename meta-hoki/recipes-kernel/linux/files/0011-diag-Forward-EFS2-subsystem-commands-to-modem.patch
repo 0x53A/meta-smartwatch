@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@local>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Fri, 21 Mar 2026 00:00:00 +0000
 Subject: [PATCH] diag: Forward unregistered subsystem commands to modem
 
@@ -17,7 +17,7 @@ subsystem dispatch command (cmd_code 0x4B) to the modem peripheral
 when it is online.
 
 Upstream-Status: Inappropriate [device-specific workaround]
-Signed-off-by: Lukas Rieger <lukas@local>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  drivers/char/diag/diagfwd.c | 16 ++++++++++++++++
  1 file changed, 16 insertions(+)

@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Wed, 19 Mar 2026 00:00:00 +0100
 Subject: [PATCH] rtc: hctosys: Clamp system clock to minimum epoch
 
@@ -16,7 +16,7 @@ system clock is set to the minimum instead. This gives userspace
 hwclock -w will write the correct time back to the RTC for future boots.
 
 Upstream-Status: Inappropriate [device-specific workaround]
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  drivers/rtc/Kconfig   |  9 +++++++++
  drivers/rtc/hctosys.c | 12 ++++++++++++

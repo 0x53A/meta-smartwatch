@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <noreply@example.com>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Fri, 21 Mar 2026 23:00:00 +0000
 Subject: [PATCH] nfc: pn553: Add 100ms delay after VEN assertion
 

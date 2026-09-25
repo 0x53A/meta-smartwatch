@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Thu, 13 Mar 2026 00:00:00 +0100
 Subject: [PATCH] rtc: Enable PMIC RTC write support
 
@@ -19,7 +19,7 @@ patch 0001 (qcom,qpnp-rtc-write = <0x01> in the hoki DTS). Remove this
 patch after verifying RTC writes work on the device.
 
 Upstream-Status: Inappropriate [device-specific configuration]
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  arch/arm64/boot/dts/qcom/pm660.dtsi | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Wed, 19 Mar 2026 00:00:00 +0100
 Subject: [PATCH] rtc: qpnp: Add debug prints for crash diagnosis
 
@@ -8,7 +8,7 @@ qpnp_rtc_set_alarm() to diagnose boot crash when qpnp-rtc-write is
 enabled. Includes dump_stack() in set_time to capture call chain.
 
 Upstream-Status: Inappropriate [temporary debug patch]
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  drivers/rtc/qpnp-rtc.c | 18 ++++++++++++++++++
  1 file changed, 18 insertions(+)

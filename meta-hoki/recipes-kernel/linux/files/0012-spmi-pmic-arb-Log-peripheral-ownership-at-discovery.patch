@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Fri, 21 Mar 2026 00:00:00 +0100
 Subject: [PATCH] spmi: pmic-arb: Log peripheral ownership at discovery
 
@@ -9,7 +9,7 @@ execution environment (APPS=0, RPM=1, Modem=2, TZ=3) owns each PMIC
 peripheral's write channel.
 
 Upstream-Status: Inappropriate [temporary debug patch]
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  drivers/spmi/spmi-pmic-arb.c | 3 +++
  1 file changed, 3 insertions(+)

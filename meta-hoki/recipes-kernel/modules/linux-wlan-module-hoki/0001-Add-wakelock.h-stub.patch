@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Sat, 14 Mar 2026 12:00:00 +0100
 Subject: [PATCH] Add wakelock.h stub for kernels that removed it
 
@@ -9,7 +9,7 @@ includes without requiring the actual wakelock API.
 
 Upstream-Status: Inappropriate [hoki-specific build workaround]
 
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  wakelock_stub/linux/wakelock.h | 14 ++++++++++++++
  1 file changed, 14 insertions(+)
