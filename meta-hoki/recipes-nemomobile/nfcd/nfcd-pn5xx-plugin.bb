@@ -12,8 +12,7 @@ SRC_URI = "file://src \
            file://nxp-rf-config.bin \
            "
 
-S = "${WORKDIR}/sources"
-UNPACKDIR = "${S}"
+S = "${UNPACKDIR}"
 
 DEPENDS = "glib-2.0 libglibutil libncicore libnciplugin nfcd"
 
