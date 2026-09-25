@@ -1,0 +1,14 @@
+#!/bin/sh
+# Android init owns this HAL. Stop it before systemd terminates init itself;
+# the vendor process ignores SIGTERM and otherwise delays shutdown by 90s.
+set -eu
+service=vendor.bluetooth-1-0
+state=$(getprop "init.svc.$service")
+case "$state" in ''|stopped) exit 0;; esac
+setprop ctl.stop "$service"
+for attempt in 1 2 3 4 5; do
+    [ "$(getprop "init.svc.$service")" != stopped ] || exit 0
+    sleep 1
+done
+echo "Android Bluetooth HAL did not stop within 5 seconds" >&2
+exit 1

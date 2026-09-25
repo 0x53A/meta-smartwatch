@@ -1,0 +1,121 @@
+Subject: [PATCH] rfkill: leave Hoki physical Bluetooth power to its HAL
+
+Hoki exposes both bt_power and a bluebinder HCI rfkill device. The Android HAL
+owns physical sequencing via /dev/btpower, including a pre-shutdown command.
+RFKILL_OP_CHANGE_ALL cuts those rails independently, while the HAL still sends
+commands. It then times out waiting for an IBS wake ACK and kills itself during
+SSR cleanup. The rfkill and ioctl driver paths also cache state independently.
+
+Keep the physical device outside ConnMan technology state and issue indexed
+Bluetooth requests to the remaining devices. The virtual HCI rfkill still
+reaches bluebinder, which closes the HAL before it removes physical power.
+Fail closed if a Bluetooth name cannot be read; never treat an unknown device
+as HAL-independent. DEL events remove tracked entries even after sysfs is gone.
+Other radio types retain the existing broadcast behavior. This patch is only
+applied to Hoki; a generic upstream policy would need explicit configuration.
+
+Live tracing identified the HAL as its own SIGKILL sender. With physical power
+ownership separated, the same HAL/proxy survived the tested rapid burst and
+the HAL completed its pre-shutdown command and physical power-off ioctl.
+
+Upstream-Status: Inappropriate [Hoki-specific Android HAL power ownership]
+
+--- a/src/rfkill.c
++++ b/src/rfkill.c
+@@ -95,6 +95,23 @@
+ 	return NUM_RFKILL_TYPES;
+ }
+ 
++/* The Hoki Android HAL owns bt_power through /dev/btpower.
++ * ConnMan must control virtual HCI rfkill, not cut the HAL's power rails.
++ */
++static int hal_owned_rfkill(unsigned int idx, unsigned int type)
++{
++	char *path, *name = NULL;
++	int owned = -EIO;
++	if (type != RFKILL_TYPE_BLUETOOTH)
++		return 0;
++	path = g_strdup_printf("/sys/class/rfkill/rfkill%u/name", idx);
++	if (g_file_get_contents(path, &name, NULL, NULL))
++		owned = !strcmp(g_strstrip(name), "bt_power");
++	g_free(name);
++	g_free(path);
++	return owned;
++}
++
+ static GIOStatus rfkill_process(GIOChannel *chan)
+ {
+ 	unsigned char buf[32];
+@@ -119,6 +136,10 @@
+ 	DBG("idx %u type %u op %u soft %u hard %u", event->idx,
+ 						event->type, event->op,
+ 						event->soft, event->hard);
++
++	if (event->op != RFKILL_OP_DEL &&
++			hal_owned_rfkill(event->idx, event->type))
++		return status;
+ 
+ 	type = convert_type(event->type);
+ 
+@@ -176,10 +197,57 @@
+ 	event.type = rfkill_type;
+ 	event.soft = block;
+ 
+-	len = write(fd, &event, sizeof(event));
+-	if (len < 0) {
+-		err = -errno;
+-		connman_error("Failed to change RFKILL state");
++	if (rfkill_type == RFKILL_TYPE_BLUETOOTH) {
++		GDir *dir = g_dir_open("/sys/class/rfkill", 0, NULL);
++		const char *entry;
++		if (!dir) {
++			close(fd);
++			return -EIO;
++		}
++		event.op = RFKILL_OP_CHANGE;
++		while ((entry = g_dir_read_name(dir))) {
++			char *end, *path, *kind = NULL;
++			unsigned long long idx;
++			bool bluetooth;
++			int owned;
++			if (!g_str_has_prefix(entry, "rfkill") || !entry[6])
++				continue;
++			idx = g_ascii_strtoull(entry + 6, &end, 10);
++			if (*end || idx > UINT32_MAX)
++				continue;
++			path = g_strdup_printf("/sys/class/rfkill/%s/type", entry);
++			if (!g_file_get_contents(path, &kind, NULL, NULL)) {
++				g_free(path);
++				continue;
++			}
++			g_free(path);
++			bluetooth = !strcmp(g_strstrip(kind), "bluetooth");
++			g_free(kind);
++			if (!bluetooth)
++				continue;
++			owned = hal_owned_rfkill(idx, rfkill_type);
++			if (owned < 0) {
++				err = owned;
++				break;
++			}
++			if (owned)
++				continue;
++			event.idx = idx;
++			len = write(fd, &event, sizeof(event));
++			if (len != sizeof(event) && !(len < 0 && errno == ENODEV)) {
++				err = len < 0 ? -errno : -EIO;
++				break;
++			}
++		}
++		g_dir_close(dir);
++		if (err)
++			connman_error("Failed to change Bluetooth RFKILL state: %d", -err);
++	} else {
++		len = write(fd, &event, sizeof(event));
++		if (len < 0) {
++			err = -errno;
++			connman_error("Failed to change RFKILL state");
++		}
+ 	}
+ 
+ 	close(fd);
