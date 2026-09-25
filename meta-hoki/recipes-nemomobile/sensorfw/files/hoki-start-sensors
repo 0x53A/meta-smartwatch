@@ -1,0 +1,22 @@
+#!/bin/sh
+# The vendor HAL is oneshot and can exit when its sensorfw client disconnects.
+# Restart it through Android init before sensorfw tries to enumerate sensors.
+set -eu
+attempt=0
+started=0
+while [ "$attempt" -lt 10 ]; do
+    state=$(getprop init.svc.vendor.sensors-hal-1-0)
+    case "$state" in
+        running) exit 0 ;;
+        stopped)
+            if [ "$started" -eq 0 ]; then
+                setprop ctl.start vendor.sensors-hal-1-0
+                started=1
+            fi
+            ;;
+    esac
+    attempt=$((attempt + 1))
+    sleep 1
+done
+echo 'Android sensors HAL did not start' >&2
+exit 1
