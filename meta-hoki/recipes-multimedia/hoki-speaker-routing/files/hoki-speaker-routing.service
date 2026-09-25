@@ -1,0 +1,14 @@
+[Unit]
+Description=Enable the Hoki built-in speaker and microphone routes
+BindsTo=dev-snd-controlC0.device
+After=dev-snd-controlC0.device
+
+[Service]
+Type=oneshot
+ExecStart=@BINDIR@/tinymix -D 0 set "QUAT_MI2S_RX Audio Mixer MultiMedia1" 1
+ExecStart=@BINDIR@/tinymix -D 0 set "DEC1 MUX" "DMIC1"
+ExecStart=@BINDIR@/tinymix -D 0 set "MultiMedia1 Mixer TERT_MI2S_TX" 1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sound.target

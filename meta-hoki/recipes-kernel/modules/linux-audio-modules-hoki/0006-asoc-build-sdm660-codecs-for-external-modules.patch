@@ -1,0 +1,56 @@
+Subject: [PATCH] asoc: build SDM660 codecs for external modules
+
+The Hoki machine driver calls into the analog and digital codecs, but
+MODNAME=audio selects KERNEL_BUILD=0 and skips their subdirectory. Build
+these codecs in both modes so modpost and depmod can resolve the machine
+driver dependencies. Remove the nested timestamp flags: inheriting and
+redefining BUILD_TIMESTAMP breaks the recursive external Kbuild and adds
+non-reproducible build dates to compiler commands.
+
+Apply the existing external-module warning policy to the newly enabled
+codec directory as well.
+
+Upstream-Status: Pending
+
+--- a/asoc/codecs/Kbuild
++++ b/asoc/codecs/Kbuild
+@@ -231,12 +231,14 @@
+ 
+ ifeq ($(KERNEL_BUILD), 1)
+ 	obj-y	+= wcd934x/
+-	obj-y	+= sdm660_cdc/
+ 	obj-y	+= msm_sdw/
+ 	obj-y	+= wcd9360/
+ 	obj-y	+= wcd937x/
+ endif
+ 
++# The machine driver also needs these codecs in external module builds.
++obj-y += sdm660_cdc/
++
+ ifeq ($(CONFIG_SND_SOC_GCOV), y)
+ GCOV_PROFILE := y
+ endif
+@@ -272,6 +274,3 @@
+ obj-$(CONFIG_SND_SOC_MSM_HDMI_CODEC_RX) += hdmi_dlkm.o
+ hdmi_dlkm-y := $(HDMICODEC_OBJS)
+ 
+-# inject some build related information
+-TIMESTAMP := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+-CDEFINES += -DBUILD_TIMESTAMP=\"$(TIMESTAMP)\"
+--- a/asoc/codecs/sdm660_cdc/Kbuild
++++ b/asoc/codecs/sdm660_cdc/Kbuild
+@@ -94,7 +94,6 @@
+ 		-DANI_OS_TYPE_ANDROID=6 \
+ 		-DPTT_SOCK_SVC_ENABLE \
+ 		-Wall\
+-		-Werror\
+ 		-D__linux__
+ 
+ KBUILD_CPPFLAGS += $(CDEFINES)
+@@ -140,6 +139,3 @@
+ obj-$(CONFIG_SND_SOC_DIGITAL_CDC_LEGACY) += audio_digital_cdc.o
+ audio_digital_cdc-y := $(DIGITAL_CDC_OBJS)
+ 
+-# inject some build related information
+-TIMESTAMP := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+-CDEFINES += -DBUILD_TIMESTAMP=\"$(TIMESTAMP)\"

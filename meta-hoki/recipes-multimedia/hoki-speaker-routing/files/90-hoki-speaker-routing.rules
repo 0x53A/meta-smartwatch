@@ -1,0 +1,3 @@
+# Match the built-in card, not a Bluetooth/USB audio device. Device activation
+# avoids racing android-init and deferred codec probing during boot.
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="controlC0", ATTRS{id}=="sdm429wsndcard", TAG+="systemd", ENV{SYSTEMD_WANTS}+="hoki-speaker-routing.service"
