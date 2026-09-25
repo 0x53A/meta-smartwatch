@@ -1,0 +1,44 @@
+From: Hoki developers <code@lukasrieger.com>
+Subject: [PATCH] udev: recover from receive and monitor recreation errors
+
+Upstream-Status: Pending
+
+--- a/src/usb_moded-udev.c
++++ b/src/usb_moded-udev.c
+@@ -37,6 +37,7 @@
+ #include "usb_moded-log.h"
+ 
+ #include <libudev.h>
++#include <errno.h>
+ 
+ /* ========================================================================= *
+  * Constants
+@@ -990,7 +991,12 @@
+         log_debug("USB connection watch destroyed, restarting it\n!");
+         /* restart trigger */
+         umudev_quit();
+-        umudev_init();
++        if( !umudev_init() ) {
++            /* Do not leave a running daemon with no cable monitor.
++             * The service manager retries with its restart backoff. */
++            log_err("Unable to restore USB connection watch");
++            usbmoded_exit_mainloop(EXIT_FAILURE);
++        }
+     }
+ }
+ 
+@@ -1011,8 +1017,12 @@
+         /* This normally blocks but G_IO_IN indicates that we can read */
+         struct udev_device *dev = udev_monitor_receive_device(umudev_monitor);
+         if( !dev ) {
+-            /* if we get something else something bad happened stop watching to avoid busylooping */
+-            continue_watching = FALSE;
++            /* The monitor is nonblocking. Filtered events or interrupted
++             * reads can leave no device to return even after G_IO_IN.
++             * Keep the monitor and cached cable state for transient errors.
++             * Real socket errors still use the existing recreation path. */
++            if( errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR )
++                continue_watching = FALSE;
+         }
+         else {
+             const char *syspath   = udev_device_get_syspath(dev);

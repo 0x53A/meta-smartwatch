@@ -1,0 +1,28 @@
+From: Lukas Rieger <code@lukasrieger.com>
+Subject: [PATCH] network: make static address setup idempotent
+
+network_down retains the interface address. Switching between ADB+NCM
+and SSH+NCM must not fail with EEXIST. Also avoid shifting a signed int
+into the sign bit when calculating the netmask prefix length.
+
+Upstream-Status: Pending
+
+--- a/src/usb_moded-network.c
++++ b/src/usb_moded-network.c
+@@ -1222,14 +1222,14 @@
+         int cidr = 0;
+ 
+         for (int i = 31; i >= 0; i--) {
+-            if (value & (1 << i)) {
++            if (value & (1u << i)) {
+                 cidr++;
+             } else {
+                 break;
+             }
+         }
+ 
+-        snprintf(command, sizeof command,"ip addr add %s/%d dev %s", address, cidr, interface);
++        snprintf(command, sizeof command,"ip addr replace %s/%d dev %s", address, cidr, interface);
+         if( common_system(command) != 0 )
+             goto EXIT;
+ 

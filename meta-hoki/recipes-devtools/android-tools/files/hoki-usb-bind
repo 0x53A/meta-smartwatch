@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+gadget=/sys/kernel/config/usb_gadget/g1
+for i in $(seq 100); do
+    # Once the manager starts, only it may bind or reconfigure the gadget.
+    [ ! -e /run/hoki-usb-managed ] || exit 0
+    # Endpoints appear only after adbd writes its FunctionFS descriptors.
+    if [ -e /dev/usb-ffs/adb/ep1 ]; then
+        if [ -z "$(cat "$gadget/UDC")" ]; then
+            set -- /sys/class/udc/*
+            [ -e "$1" ] || exit 1
+            basename "$1" > "$gadget/UDC"
+        fi
+        exit 0
+    fi
+    sleep 0.1
+done
+echo 'ADB FunctionFS descriptors did not become ready' >&2
+exit 1

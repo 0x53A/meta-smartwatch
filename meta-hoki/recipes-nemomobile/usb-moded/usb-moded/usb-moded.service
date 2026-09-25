@@ -1,0 +1,21 @@
+[Unit]
+Description=USB mode manager (Hoki configfs)
+Requires=dbus.socket
+Wants=android-tools-adbd.service
+After=local-fs.target dbus.socket android-tools-adbd.service
+Conflicts=shutdown.target
+
+[Service]
+Type=dbus
+EnvironmentFile=-/var/lib/environment/usb-moded/*.conf
+EnvironmentFile=-/run/usb-moded/*.conf
+ExecStartPre=/bin/touch /run/hoki-usb-managed
+ExecStartPre=/bin/mkdir -p /run/systemd/boot-status
+ExecStartPre=/bin/touch /run/systemd/boot-status/init-done
+ExecStart=/usr/sbin/usb_moded --systemd --force-syslog $USB_MODED_ARGS
+Restart=on-failure
+RestartSec=3
+BusName=com.meego.usb_moded
+
+[Install]
+WantedBy=multi-user.target

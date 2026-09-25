@@ -1,0 +1,37 @@
+#!/bin/sh
+# Prepare Hoki's configfs gadget. usb-moded owns mode transitions afterwards.
+# Also usable in the recovery initramfs, where usb-moded is absent.
+set -eu
+config=/sys/kernel/config
+gadget=$config/usb_gadget/g1
+if ! mountpoint -q "$config"; then
+    mkdir -p "$config"
+    mount -t configfs none "$config"
+fi
+if [ ! -d "$gadget" ] || {
+    [ ! -e /run/hoki-usb-managed ] && [ -z "$(cat "$gadget/UDC")" ];
+}; then
+    # Retry interrupted initial preparation while unbound. Once usb-moded
+    # owns the gadget, preserve its selected functions on adbd restarts.
+    mkdir -p "$gadget/strings/0x409" "$gadget/configs/c.1/strings/0x409"
+    echo 0x18d1 > "$gadget/idVendor"
+    echo 0xd001 > "$gadget/idProduct"
+    serial=$(sed -n 's/.*androidboot.serialno=\([^ ]*\).*/\1/p' /proc/cmdline)
+    echo "${serial:-hoki}" > "$gadget/strings/0x409/serialnumber"
+    echo Fossil > "$gadget/strings/0x409/manufacturer"
+    echo 'Fossil Gen 6' > "$gadget/strings/0x409/product"
+    echo 'ADB and NCM' > "$gadget/configs/c.1/strings/0x409/configuration"
+    mkdir -p "$gadget/functions/ffs.adb" "$gadget/functions/ncm.usb0"
+    [ -L "$gadget/configs/c.1/ffs.adb" ] || ln -s "$gadget/functions/ffs.adb" "$gadget/configs/c.1/ffs.adb"
+    [ -L "$gadget/configs/c.1/ncm.usb0" ] || ln -s "$gadget/functions/ncm.usb0" "$gadget/configs/c.1/ncm.usb0"
+fi
+# Never rewrite an existing configuration: a mode change may be in progress.
+mkdir -p /dev/usb-ffs/adb
+if ! mountpoint -q /dev/usb-ffs/adb; then
+    mount -t functionfs adb /dev/usb-ffs/adb
+fi
+# The initramfs starts adbd directly. Wait for actual descriptors rather than
+# sleeping an arbitrary second before binding the controller.
+if [ ! -e /run/hoki-usb-managed ]; then
+    /usr/bin/hoki-usb-bind &
+fi

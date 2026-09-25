@@ -1,0 +1,37 @@
+From: Lukas Rieger <code@lukasrieger.com>
+Subject: [PATCH] configfs: wait for ADB descriptors before binding UDC
+
+Systemd StartUnit is asynchronous. Launching adbd as a pre-enumeration
+application does not guarantee its FunctionFS descriptors are ready.
+Bound the wait and fail explicitly instead of losing USB enumeration.
+
+Upstream-Status: Pending
+
+--- a/src/usb_moded-configfs.c
++++ b/src/usb_moded-configfs.c
+@@ -763,8 +763,24 @@
+ 
+     const char *value = "";
+ 
+-    if( enable )
++    if( enable ) {
++        /* StartUnit only queues adbd; wait for FunctionFS descriptors before
++         * binding a configuration containing ADB. No wait for NCM-only modes.
++         */
++        gchar *adb = g_strdup_printf("%s/%s", GADGET_CONF_DIRECTORY, FUNCTION_ADB);
++        bool needs_adb = access(adb, F_OK) == 0;
++        g_free(adb);
++        if( needs_adb ) {
++            unsigned tries = 100;
++            while( access("/dev/usb-ffs/adb/ep1", F_OK) != 0 && tries-- )
++                usleep(100000);
++            if( access("/dev/usb-ffs/adb/ep1", F_OK) != 0 ) {
++                log_err("ADB FunctionFS descriptors not ready; refusing UDC bind");
++                return false;
++            }
++        }
+         value = configfs_udc_enable_value();
++    }
+ 
+     return configfs_write_udc(value);
+ }

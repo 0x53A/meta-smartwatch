@@ -1,5 +1,5 @@
 From fcaae979e907a94869e23ea3122253990d5a9b82 Mon Sep 17 00:00:00 2001
-From: Lukas Rieger <lukas@0x53a.dev>
+From: Lukas Rieger <code@lukasrieger.com>
 Date: Sat, 14 Mar 2026 00:55:34 +0100
 Subject: [PATCH] usb_moded-configfs: Add ADB (ffs.adb) function support
 
@@ -14,7 +14,7 @@ as the existing three functions.
 
 Upstream-Status: Pending
 
-Signed-off-by: Lukas Rieger <lukas@0x53a.dev>
+Signed-off-by: Lukas Rieger <code@lukasrieger.com>
 ---
  src/usb_moded-configfs.c | 16 +++++++++++++++-
  1 file changed, 15 insertions(+), 1 deletion(-)
