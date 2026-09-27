@@ -7,6 +7,7 @@ SRC_URI = "https://dl.dropboxusercontent.com/s/1mmpew8kyn52jko/system-hoki-p.tar
 SRC_URI[md5sum] = "a1c2efc27d1a2531a34e5c5345964147"
 SRC_URI[sha256sum] = "1416a01a8fd19e9c82aa0ca9bde33db6853eb08f5411592b4b178364971417ce"
 PV = "pie"
+PR = "r1"
 
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 INHIBIT_PACKAGE_STRIP = "1"
@@ -21,6 +22,10 @@ do_install() {
 
     install -d ${D}/vendor/
     cp -r vendor/* ${D}/vendor/
+
+    # Wear OS APKs are not loaded by AsteroidOS's native HAL services. Keep
+    # them in the pinned source archive for reference, but out of the image.
+    rm -rf "${D}/vendor/app"
 
     # Disable the Android NFC HAL — it downloads PN557 firmware onto the PN553
     # chip, killing it after ~21s. NFC uses the mainline nxp-nci driver + neard.

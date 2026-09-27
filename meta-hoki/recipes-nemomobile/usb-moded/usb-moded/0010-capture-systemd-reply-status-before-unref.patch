@@ -1,0 +1,36 @@
+From: Lukas Rieger <code@lukasrieger.com>
+Subject: [PATCH] usb-moded: capture systemd reply success before unref
+Upstream-Status: Pending
+
+dbus_message_get_args() returns a borrowed object-path reference into the
+reply message. Save its non-NULL status while the message is still alive so
+the helper does not inspect that reference after releasing its owner.
+
+---
+ src/usb_moded-systemd.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/usb_moded-systemd.c b/src/usb_moded-systemd.c
+--- a/src/usb_moded-systemd.c
++++ b/src/usb_moded-systemd.c
+@@ -73,6 +73,7 @@
+     DBusError       err = DBUS_ERROR_INIT;
+     const char     *arg = "replace";
+     const char     *res = 0;
++    gboolean        ack = FALSE;
+ 
+     log_debug("%s(%s) ...", method, name);
+ 
+@@ -134,10 +135,11 @@
+ 
+     log_debug("%s(%s) -> %s", method, name, res ?: "N/A");
+ 
++    ack = (res != 0);
+     if( rsp ) dbus_message_unref(rsp);
+     if( req ) dbus_message_unref(req);
+ 
+-    return res != 0;
++    return ack;
+ }
+ 
+ /* ========================================================================= *

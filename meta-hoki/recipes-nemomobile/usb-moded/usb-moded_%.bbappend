@@ -1,7 +1,8 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/usb-moded:"
 SRC_URI += "file://0005-usb-moded-configfs-Add-ADB-function-support.patch"
 SRC_URI += " file://0008-udev-transient-receive.patch"
-SRC_URI += " file://0006-configfs-wait-for-adb-descriptors.patch file://0007-network-idempotent-address.patch file://usb-moded.ini file://adb_mode.ini file://developer_mode.ini file://adbd-functionfs.sh"
+SRC_URI += " file://0006-configfs-wait-for-adb-descriptors.patch file://0007-network-idempotent-address.patch file://0009-reject-failed-function-and-dhcp-setup.patch file://0010-capture-systemd-reply-status-before-unref.patch file://0011-propagate-configfs-product-id-failures.patch file://usb-moded.ini file://adb_mode.ini file://developer_mode.ini file://adbd-functionfs.sh"
+PR:append:hoki = ".hoki3"
 
 do_install:append() {
     install -m 0644 ${UNPACKDIR}/usb-moded.ini ${D}${sysconfdir}/usb-moded/usb-moded.ini

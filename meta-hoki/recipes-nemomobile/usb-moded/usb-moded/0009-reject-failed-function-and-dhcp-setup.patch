@@ -1,0 +1,37 @@
+From: Lukas Rieger <code@lukasrieger.com>
+Subject: [PATCH] usb-moded: reject failed function and DHCP setup
+
+Upstream-Status: Pending
+
+The dynamic-mode path ignores failure from configfs function selection and
+post-enumeration actions. Hoki NCM modes rely on configfs selection and start
+`udhcp-daemon.service` during appsync post actions, so either failure can be
+published as an activated mode.
+
+This narrow candidate does not claim complete setter-error propagation. Hoki's
+VID override is optional and is preloaded by `android-gadget-setup`; the dynamic
+PID write also remains unchecked because both Hoki modes request the already
+preloaded D001. These descriptor-write paths need separate impact review.
+
+--- a/src/usb_moded-modesetting.c
++++ b/src/usb_moded-modesetting.c
+@@ -764,7 +764,8 @@
+ 
+     if( configfs_in_use() ) {
+         /* Configfs based gadget configuration */
+-        configfs_set_function(data->sysfs_value);
++        if( !configfs_set_function(data->sysfs_value) )
++            goto EXIT;
+         configfs_set_productid(data->idProduct);
+         char *id = config_get_android_vendor_id();
+         configfs_set_vendorid(data->idVendorOverride ?: id);
+@@ -848,7 +849,8 @@
+         log_debug("Dynamic mode is appsync: do post actions");
+         /* let's sleep for a bit (350ms) to allow interfaces to settle before running postsync */
+         common_msleep(350);
+-        appsync_activate_post(data->mode_name);
++        if( appsync_activate_post(data->mode_name) != 0 )
++            goto EXIT;
+     }
+ 
+     /* - - - - - - - - - - - - - - - - - - - *

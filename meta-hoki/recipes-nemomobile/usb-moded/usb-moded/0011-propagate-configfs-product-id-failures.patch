@@ -1,0 +1,47 @@
+From: Lukas Rieger <code@lukasrieger.com>
+Subject: [PATCH] usb-moded: propagate Hoki product ID failures
+
+Upstream-Status: Pending
+
+Reject dynamic or charging mode setup when a requested product ID cannot be
+verified or written. Read the current ID first so a redundant write failure
+does not reject Hoki's already-correct preloaded D001.
+
+--- a/src/usb_moded-configfs.c
++++ b/src/usb_moded-configfs.c
+@@ -921,7 +921,8 @@
+         goto EXIT;
+ 
+     /* TODO: make this configurable */
+-    configfs_set_productid("0AFE");
++    if( !configfs_set_productid("0AFE") )
++        goto EXIT;
+ 
+     if( !configfs_set_udc(true) )
+         goto EXIT;
+@@ -954,7 +955,12 @@
+             snprintf(str, sizeof str, "0x%04x", num);
+             id = str;
+         }
+-        ack = configfs_write_file(GADGET_CTRL_ID_PRODUCT, id);
++        char current[64];
++        if( configfs_read_file(GADGET_CTRL_ID_PRODUCT, current, sizeof current) &&
++            !g_ascii_strcasecmp(current, id) )
++            ack = true;
++        else
++            ack = configfs_write_file(GADGET_CTRL_ID_PRODUCT, id);
+     }
+ 
+     log_debug("CONFIGFS %s(%s) -> %d", __func__, id, ack);
+--- a/src/usb_moded-modesetting.c
++++ b/src/usb_moded-modesetting.c
+@@ -766,7 +766,8 @@
+         /* Configfs based gadget configuration */
+         if( !configfs_set_function(data->sysfs_value) )
+             goto EXIT;
+-        configfs_set_productid(data->idProduct);
++        if( data->idProduct && !configfs_set_productid(data->idProduct) )
++            goto EXIT;
+         char *id = config_get_android_vendor_id();
+         configfs_set_vendorid(data->idVendorOverride ?: id);
+         free(id);
