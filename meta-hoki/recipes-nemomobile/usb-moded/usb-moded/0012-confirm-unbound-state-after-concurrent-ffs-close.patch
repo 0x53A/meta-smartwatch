@@ -1,0 +1,37 @@
+From: Lukas Rieger <code@lukasrieger.com>
+Subject: [PATCH] configfs: confirm unbound state after a concurrent FunctionFS close
+
+Closing FunctionFS can unregister the gadget between configfs_write_udc's
+read and disable write. The second unregistration then fails with ENODEV
+even though the requested unbound state has been reached. This occurred on
+Hoki while leaving ADB mode: adbd's exit stack unregistered the gadget before
+usb-moded's write, causing an unnecessary charging-only fallback.
+
+On a failed disable, confirm the current UDC is empty before treating the
+operation as successful. Leave enables and still-bound/unreadable failures
+unchanged. This is a postcondition check, not a retry of a failed bind.
+
+Upstream-Status: Pending
+
+--- a/src/usb_moded-configfs.c
++++ b/src/usb_moded-configfs.c
+@@ -749,8 +749,17 @@
+         goto EXIT;
+ 
+     if( strcmp(prev, text) ) {
+-        if( !configfs_write_file(GADGET_CTRL_UDC, text) )
+-            goto EXIT;
++        if( !configfs_write_file(GADGET_CTRL_UDC, text) ) {
++            /* FunctionFS close can unregister after our read. A failed
++             * disable is harmless only if its postcondition is confirmed.
++             * Never convert a failed enable into success.
++             */
++            if( *text ||
++                !configfs_read_file(GADGET_CTRL_UDC, prev, sizeof prev) ||
++                *prev )
++                goto EXIT;
++            log_debug("UDC already unbound after concurrent disable");
++        }
+     }
+ 
+     ack = true;
